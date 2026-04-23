@@ -5,14 +5,14 @@ dotenv.config();
 
 const EnvSchema = z.object({
   PORT: z.coerce.number().default(4000),
-  MONGODB_URI: z
-    .string({ required_error: 'Thiếu MONGODB_URI (hãy tạo file .env trong thư mục backend)' })
-    .min(1, 'Thiếu MONGODB_URI (hãy tạo file .env trong thư mục backend)'),
+  DATABASE_URL: z
+    .string({ required_error: 'Thiếu DATABASE_URL (hãy tạo file .env trong thư mục backend)' })
+    .min(1, 'Thiếu DATABASE_URL (hãy tạo file .env trong thư mục backend)'),
   CORS_ORIGIN: z.string().default('*'),
 });
 
 export const env = EnvSchema.parse({
   PORT: process.env.PORT,
-  MONGODB_URI: process.env.MONGODB_URI,
+  DATABASE_URL: process.env.DATABASE_URL,
   CORS_ORIGIN: process.env.CORS_ORIGIN,
 });

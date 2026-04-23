@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { UserModel } from '../models/User';
+import { prisma } from '../prisma';
 
 export const usersRouter = Router();
 
@@ -15,29 +15,38 @@ usersRouter.post(
       })
       .parse(req.body);
 
-    const doc = await UserModel.create({
-      profile: {
+    const doc = await prisma.user.create({
+      data: {
         fullName: body.fullName,
         email: body.email,
         phone: body.phone,
-      },
-      preferences: {
         tasteProfile: [],
         allergies: [],
       },
+      select: { id: true },
     });
 
-    res.status(201).json({ id: doc._id.toString() });
+    res.status(201).json({ id: doc.id });
   }
 );
 
 usersRouter.get('/', async (_req, res) => {
-  const users = await UserModel.find().sort({ createdAt: -1 }).limit(50).lean();
+  const users = await prisma.user.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+  });
   res.json(
     users.map((u) => ({
-      id: u._id.toString(),
-      profile: u.profile,
-      preferences: u.preferences,
+      id: u.id,
+      profile: {
+        fullName: u.fullName,
+        email: u.email,
+        phone: u.phone ?? undefined,
+      },
+      preferences: {
+        tasteProfile: u.tasteProfile,
+        allergies: u.allergies,
+      },
       createdAt: u.createdAt,
       updatedAt: u.updatedAt,
     }))

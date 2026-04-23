@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { Types } from 'mongoose';
-import { FridgeItemModel } from '../models/FridgeItem';
+import { prisma } from '../prisma';
 
 export const fridgeRouter = Router();
 
@@ -9,11 +8,14 @@ const userIdSchema = z.string().min(1);
 
 fridgeRouter.get('/', async (req, res) => {
   const userId = userIdSchema.parse(req.query.userId);
-  const list = await FridgeItemModel.find({ userId: new Types.ObjectId(userId) }).sort({ updatedAt: -1 }).lean();
+  const list = await prisma.fridgeItem.findMany({
+    where: { userId },
+    orderBy: { updatedAt: 'desc' },
+  });
   res.json(
     list.map((it) => ({
-      id: it._id.toString(),
-      userId: it.userId.toString(),
+      id: it.id,
+      userId: it.userId,
       name: it.name,
       quantity: it.quantity,
       unit: it.unit,
@@ -35,15 +37,18 @@ fridgeRouter.post('/', async (req, res) => {
     })
     .parse(req.body);
 
-  const doc = await FridgeItemModel.create({
-    userId: new Types.ObjectId(body.userId),
-    name: body.name,
-    quantity: Math.floor(body.quantity),
-    unit: body.unit,
-    expiryDate: body.expiryDate ? new Date(`${body.expiryDate}T00:00:00`) : undefined,
+  const doc = await prisma.fridgeItem.create({
+    data: {
+      userId: body.userId,
+      name: body.name,
+      quantity: Math.floor(body.quantity),
+      unit: body.unit,
+      expiryDate: body.expiryDate ? new Date(`${body.expiryDate}T00:00:00`) : null,
+    },
+    select: { id: true },
   });
 
-  res.status(201).json({ id: doc._id.toString() });
+  res.status(201).json({ id: doc.id });
 });
 
 fridgeRouter.patch('/:id', async (req, res) => {
@@ -57,23 +62,29 @@ fridgeRouter.patch('/:id', async (req, res) => {
     })
     .parse(req.body);
 
-  const patch: Record<string, unknown> = {};
-  if (body.name !== undefined) patch.name = body.name;
-  if (body.quantity !== undefined) patch.quantity = Math.floor(body.quantity);
-  if (body.unit !== undefined) patch.unit = body.unit;
-  if (body.expiryDate !== undefined) {
-    patch.expiryDate = body.expiryDate === null ? undefined : new Date(`${body.expiryDate}T00:00:00`);
+  try {
+    await prisma.fridgeItem.update({
+      where: { id },
+      data: {
+        name: body.name,
+        quantity: body.quantity === undefined ? undefined : Math.floor(body.quantity),
+        unit: body.unit,
+        expiryDate:
+          body.expiryDate === undefined ? undefined : body.expiryDate === null ? null : new Date(`${body.expiryDate}T00:00:00`),
+      },
+    });
+    res.json({ ok: true });
+  } catch {
+    res.status(404).json({ message: 'Not found' });
   }
-
-  const updated = await FridgeItemModel.findByIdAndUpdate(id, patch, { new: true }).lean();
-  if (!updated) return res.status(404).json({ message: 'Not found' });
-
-  res.json({ ok: true });
 });
 
 fridgeRouter.delete('/:id', async (req, res) => {
   const id = z.string().min(1).parse(req.params.id);
-  const r = await FridgeItemModel.findByIdAndDelete(id).lean();
-  if (!r) return res.status(404).json({ message: 'Not found' });
-  res.json({ ok: true });
+  try {
+    await prisma.fridgeItem.delete({ where: { id } });
+    res.json({ ok: true });
+  } catch {
+    res.status(404).json({ message: 'Not found' });
+  }
 });

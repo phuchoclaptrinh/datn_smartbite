@@ -1,21 +1,24 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { Types } from 'mongoose';
-import { OrderModel } from '../models/Order';
+import { prisma } from '../prisma';
 
 export const ordersRouter = Router();
 
 ordersRouter.get('/', async (req, res) => {
   const userId = z.string().min(1).parse(req.query.userId);
-  const list = await OrderModel.find({ userId: new Types.ObjectId(userId) }).sort({ createdAt: -1 }).limit(100).lean();
+  const list = await prisma.order.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'desc' },
+    take: 100,
+  });
   res.json(
     list.map((o) => ({
-      id: o._id.toString(),
-      userId: o.userId.toString(),
+      id: o.id,
+      userId: o.userId,
       items: o.items,
-      subtotal: o.subtotal,
-      deliveryFee: o.deliveryFee,
-      total: o.total,
+      subtotal: { amount: o.subtotalAmount, currency: o.currency },
+      deliveryFee: { amount: o.deliveryFeeAmount, currency: o.currency },
+      total: { amount: o.totalAmount, currency: o.currency },
       status: o.status,
       note: o.note,
       createdAt: o.createdAt,
@@ -44,17 +47,21 @@ ordersRouter.post('/', async (req, res) => {
   const subtotalAmount = body.items.reduce((sum, it) => sum + it.price.amount * it.quantity, 0);
   const totalAmount = subtotalAmount + body.deliveryFee.amount;
 
-  const doc = await OrderModel.create({
-    userId: new Types.ObjectId(body.userId),
-    items: body.items,
-    subtotal: { amount: subtotalAmount, currency: 'VND' },
-    deliveryFee: body.deliveryFee,
-    total: { amount: totalAmount, currency: 'VND' },
-    status: 'Pending',
-    note: body.note,
+  const doc = await prisma.order.create({
+    data: {
+      userId: body.userId,
+      items: body.items,
+      subtotalAmount,
+      deliveryFeeAmount: body.deliveryFee.amount,
+      totalAmount,
+      currency: 'VND',
+      status: 'Pending',
+      note: body.note,
+    },
+    select: { id: true },
   });
 
-  res.status(201).json({ id: doc._id.toString() });
+  res.status(201).json({ id: doc.id });
 });
 
 ordersRouter.patch('/:id/status', async (req, res) => {
@@ -65,7 +72,13 @@ ordersRouter.patch('/:id/status', async (req, res) => {
     })
     .parse(req.body);
 
-  const updated = await OrderModel.findByIdAndUpdate(id, { status: body.status }, { new: true }).lean();
-  if (!updated) return res.status(404).json({ message: 'Not found' });
-  res.json({ ok: true });
+  try {
+    await prisma.order.update({
+      where: { id },
+      data: { status: body.status },
+    });
+    res.json({ ok: true });
+  } catch {
+    res.status(404).json({ message: 'Not found' });
+  }
 });

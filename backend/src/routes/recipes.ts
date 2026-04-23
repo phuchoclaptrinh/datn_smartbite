@@ -1,14 +1,17 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { RecipeModel } from '../models/Recipe';
+import { prisma } from '../prisma';
 
 export const recipesRouter = Router();
 
 recipesRouter.get('/', async (_req, res) => {
-  const list = await RecipeModel.find().sort({ createdAt: -1 }).limit(100).lean();
+  const list = await prisma.recipe.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 100,
+  });
   res.json(
     list.map((r) => ({
-      id: r._id.toString(),
+      id: r.id,
       name: r.name,
       description: r.description,
       tags: r.tags,
@@ -46,16 +49,19 @@ recipesRouter.post('/', async (req, res) => {
     })
     .parse(req.body);
 
-  const doc = await RecipeModel.create({
-    name: body.name,
-    description: body.description,
-    tags: body.tags ?? [],
-    timeMin: body.timeMin,
-    servings: body.servings,
-    imageUrl: body.imageUrl,
-    ingredients: body.ingredients,
-    steps: body.steps,
+  const doc = await prisma.recipe.create({
+    data: {
+      name: body.name,
+      description: body.description,
+      tags: body.tags ?? [],
+      timeMin: body.timeMin,
+      servings: body.servings,
+      imageUrl: body.imageUrl,
+      ingredients: body.ingredients,
+      steps: body.steps,
+    },
+    select: { id: true },
   });
 
-  res.status(201).json({ id: doc._id.toString() });
+  res.status(201).json({ id: doc.id });
 });

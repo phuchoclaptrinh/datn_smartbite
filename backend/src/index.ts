@@ -1,12 +1,25 @@
 import { buildApp } from './app';
-import { connectDb } from './db';
+import { connectDb, disconnectDb } from './db';
 import { env } from './env';
 
 const start = async () => {
   await connectDb();
   const app = buildApp();
-  app.listen(env.PORT, () => {
+  const server = app.listen(env.PORT, () => {
     process.stdout.write(`API listening on http://localhost:${env.PORT}\n`);
+  });
+
+  const shutdown = async () => {
+    server.close(() => undefined);
+    await disconnectDb();
+    process.exit(0);
+  };
+
+  process.on('SIGINT', () => {
+    void shutdown();
+  });
+  process.on('SIGTERM', () => {
+    void shutdown();
   });
 };
 
