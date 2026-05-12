@@ -8,10 +8,18 @@ import { ingredientsRouter } from './routes/ingredients';
 import { fridgeRouter } from './routes/fridge';
 import { recipesRouter } from './routes/recipes';
 import { ordersRouter } from './routes/orders';
+import { rateLimit, securityHeaders } from './middleware/security';
 
 export const buildApp = () => {
   const app = express();
 
+  if (env.NODE_ENV === 'production') {
+    app.set('trust proxy', 1);
+  }
+
+  app.disable('x-powered-by');
+  app.use(securityHeaders);
+  app.use(rateLimit);
   app.use(cors({ origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN }));
   app.use(express.json({ limit: '2mb' }));
 

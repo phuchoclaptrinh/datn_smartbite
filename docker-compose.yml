@@ -1,12 +1,21 @@
 services:
-  mongo:
-    image: mongo:7
-    container_name: smartbite-mongo
+  postgres:
+    image: postgres:16-alpine
+    container_name: smartbite-postgres
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: smartbite
+      POSTGRES_PASSWORD: smartbite
+      POSTGRES_DB: smartbite
     volumes:
-      - mongo_data:/data/db
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartbite -d smartbite"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   backend:
     build:
@@ -16,12 +25,21 @@ services:
     restart: unless-stopped
     environment:
       PORT: 4000
-      MONGODB_URI: mongodb://mongo:27017/smartbite
-      CORS_ORIGIN: "*"
+      NODE_ENV: production
+      DATABASE_URL: postgresql://smartbite:smartbite@postgres:5432/smartbite?schema=public
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: smartbite
+      DB_PASS: smartbite
+      DB_NAME: smartbite
+      JWT_SECRET: local-compose-secret-change-for-public-deploy
+      JWT_EXPIRES_IN: 1h
+      CORS_ORIGIN: http://localhost:8081
     ports:
       - "4000:4000"
     depends_on:
-      - mongo
+      postgres:
+        condition: service_healthy
 
 volumes:
-  mongo_data:
+  pg_data:

@@ -24,4 +24,4 @@ RUN npm ci --omit=dev --ignore-scripts
 RUN npx prisma generate
 COPY --from=build /app/dist ./dist
 EXPOSE 4000
-CMD ["sh", "-c", "until npx prisma db push; do sleep 2; done; node dist/index.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
