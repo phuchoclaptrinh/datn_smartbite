@@ -8,7 +8,10 @@ import { ingredientsRouter } from './routes/ingredients';
 import { fridgeRouter } from './routes/fridge';
 import { recipesRouter } from './routes/recipes';
 import { ordersRouter } from './routes/orders';
+import { chatRouter } from './routes/chat';
 import { rateLimit, securityHeaders } from './middleware/security';
+
+const corsOrigin = env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean);
 
 export const buildApp = () => {
   const app = express();
@@ -20,7 +23,7 @@ export const buildApp = () => {
   app.disable('x-powered-by');
   app.use(securityHeaders);
   app.use(rateLimit);
-  app.use(cors({ origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN }));
+  app.use(cors({ origin: corsOrigin }));
   app.use(express.json({ limit: '2mb' }));
 
   app.use('/health', healthRouter);
@@ -29,6 +32,7 @@ export const buildApp = () => {
   app.use('/api/fridge', fridgeRouter);
   app.use('/api/recipes', recipesRouter);
   app.use('/api/orders', ordersRouter);
+  app.use('/api/chat', chatRouter);
 
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (err instanceof ZodError) {

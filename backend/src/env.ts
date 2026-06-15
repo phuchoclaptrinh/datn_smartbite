@@ -20,6 +20,9 @@ const EnvSchema = z
     JWT_EXPIRES_IN: z.string().min(1).default('1h'),
 
     CORS_ORIGIN: z.string().default('*'),
+
+    GEMINI_API_KEY: z.string().min(1).optional(),
+    GEMINI_MODEL: z.string().min(1).default('gemini-2.5-flash'),
   })
   .superRefine((val, ctx) => {
     const missing: string[] = [];
@@ -72,6 +75,9 @@ export const env = EnvSchema.parse({
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN,
 
   CORS_ORIGIN: process.env.CORS_ORIGIN,
+
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+  GEMINI_MODEL: process.env.GEMINI_MODEL,
 });
 
 if (!process.env.DATABASE_URL && env.DB_HOST && env.DB_PORT && env.DB_USER && env.DB_PASS && env.DB_NAME) {
