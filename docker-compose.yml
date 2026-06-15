@@ -35,8 +35,9 @@ services:
       JWT_SECRET: local-compose-secret-change-for-public-deploy
       JWT_EXPIRES_IN: 1h
       CORS_ORIGIN: http://13.54.123.248,http://localhost:8081
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+    env_file:
+      - .env
     ports:
       - "4000:4000"
     depends_on:
