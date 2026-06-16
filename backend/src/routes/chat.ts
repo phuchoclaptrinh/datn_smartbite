@@ -20,6 +20,50 @@ type ChatResponse = {
   mode: 'gemini-rag' | 'local-rag';
 };
 
+type GeminiCallResult =
+  | { ok: true; text: string; model: string }
+  | { ok: false; status: number; errorText: string; fallback: string; model: string };
+
+const GEMINI_TIMEOUT_MS = 30000;
+const GEMINI_RETRY_DELAYS_MS = [700, 1500, 3000];
+const GEMINI_TRANSIENT_STATUS = new Set([408, 429, 500, 502, 503, 504]);
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const unique = (values: string[]) => values.filter((value, index) => value && values.indexOf(value) === index);
+
+const getGeminiModels = () => unique([env.GEMINI_MODEL, 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']);
+
+const isTransientGeminiError = (status: number, raw: string) => {
+  const lower = raw.toLowerCase();
+  return (
+    GEMINI_TRANSIENT_STATUS.has(status) ||
+    lower.includes('overloaded') ||
+    lower.includes('unavailable') ||
+    lower.includes('temporarily') ||
+    lower.includes('resource_exhausted')
+  );
+};
+
+const summarizeGeminiError = (raw: string) => {
+  try {
+    const parsed = JSON.parse(raw) as { error?: { message?: string; status?: string; code?: number } };
+    return parsed.error?.message ?? parsed.error?.status ?? raw.slice(0, 300);
+  } catch {
+    return raw.slice(0, 300);
+  }
+};
+
+const fetchWithTimeout = async (url: string, init: RequestInit) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
 const normalize = (value: string) =>
   value
     .toLowerCase()
@@ -95,12 +139,11 @@ const buildLocalResponse = (message: string, menuContext: MenuDish[]): ChatRespo
   };
 };
 
-const callGemini = async (prompt: string) => {
-  if (!env.GEMINI_API_KEY) return null;
-
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(env.GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`,
-    {
+const callGeminiModel = async (prompt: string, model: string): Promise<GeminiCallResult> => {
+  try {
+    const res = await fetchWithTimeout(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY ?? '')}`,
+      {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -110,17 +153,59 @@ const callGemini = async (prompt: string) => {
           responseMimeType: 'application/json',
         },
       }),
-    }
-  );
+      }
+    );
 
-  if (!res.ok) {
-    throw new Error(await res.text().catch(() => `Gemini failed with status ${res.status}`));
+    if (!res.ok) {
+      const errorText = await res.text().catch(() => '');
+      return { ok: false, status: res.status, errorText, fallback: res.statusText, model };
+    }
+
+    const data = (await res.json()) as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+    return { ok: true, model, text: data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('\n').trim() ?? '' };
+  } catch (error) {
+    const errorText = error instanceof Error ? error.message : 'Network request failed';
+    return { ok: false, status: 503, errorText, fallback: 'Gemini request failed', model };
+  }
+};
+
+const callGemini = async (prompt: string) => {
+  if (!env.GEMINI_API_KEY) return null;
+  let lastError: Extract<GeminiCallResult, { ok: false }> | null = null;
+
+  for (const model of getGeminiModels()) {
+    for (let attempt = 0; attempt <= GEMINI_RETRY_DELAYS_MS.length; attempt += 1) {
+      const result = await callGeminiModel(prompt, model);
+
+      if (result.ok) {
+        if (model !== env.GEMINI_MODEL) {
+          console.warn(`[chat] Gemini primary model failed; used fallback model ${model}`);
+        }
+        return result.text || null;
+      }
+
+      lastError = result;
+      console.warn(
+        `[chat] Gemini failed model=${result.model} attempt=${attempt + 1} status=${result.status} message=${summarizeGeminiError(result.errorText)}`
+      );
+
+      if (!isTransientGeminiError(result.status, result.errorText)) {
+        return null;
+      }
+
+      const delayMs = GEMINI_RETRY_DELAYS_MS[attempt];
+      if (delayMs) {
+        await delay(delayMs);
+      }
+    }
   }
 
-  const data = (await res.json()) as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
-  return data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('\n').trim() ?? null;
+  if (lastError) {
+    console.warn(`[chat] Gemini fallback exhausted status=${lastError.status} message=${summarizeGeminiError(lastError.errorText)}`);
+  }
+  return null;
 };
 
 chatRouter.post('/', async (req, res) => {
