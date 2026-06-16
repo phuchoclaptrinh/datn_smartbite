@@ -30,18 +30,19 @@ const GEMINI_TRANSIENT_STATUS = new Set([408, 429, 500, 502, 503, 504]);
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const unique = (values: string[]) => values.filter((value, index) => value && values.indexOf(value) === index);
-
-const getGeminiModels = () => unique([env.GEMINI_MODEL, 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']);
+const isQuotaGeminiError = (raw: string) => {
+  const lower = raw.toLowerCase();
+  return lower.includes('quota exceeded') || lower.includes('resource_exhausted') || lower.includes('free_tier');
+};
 
 const isTransientGeminiError = (status: number, raw: string) => {
   const lower = raw.toLowerCase();
+  if (isQuotaGeminiError(raw)) return false;
   return (
     GEMINI_TRANSIENT_STATUS.has(status) ||
     lower.includes('overloaded') ||
     lower.includes('unavailable') ||
-    lower.includes('temporarily') ||
-    lower.includes('resource_exhausted')
+    lower.includes('temporarily')
   );
 };
 
@@ -175,30 +176,25 @@ const callGemini = async (prompt: string) => {
   if (!env.GEMINI_API_KEY) return null;
   let lastError: Extract<GeminiCallResult, { ok: false }> | null = null;
 
-  for (const model of getGeminiModels()) {
-    for (let attempt = 0; attempt <= GEMINI_RETRY_DELAYS_MS.length; attempt += 1) {
-      const result = await callGeminiModel(prompt, model);
+  for (let attempt = 0; attempt <= GEMINI_RETRY_DELAYS_MS.length; attempt += 1) {
+    const result = await callGeminiModel(prompt, env.GEMINI_MODEL);
 
-      if (result.ok) {
-        if (model !== env.GEMINI_MODEL) {
-          console.warn(`[chat] Gemini primary model failed; used fallback model ${model}`);
-        }
-        return result.text || null;
-      }
+    if (result.ok) {
+      return result.text || null;
+    }
 
-      lastError = result;
-      console.warn(
-        `[chat] Gemini failed model=${result.model} attempt=${attempt + 1} status=${result.status} message=${summarizeGeminiError(result.errorText)}`
-      );
+    lastError = result;
+    console.warn(
+      `[chat] Gemini failed model=${result.model} attempt=${attempt + 1} status=${result.status} message=${summarizeGeminiError(result.errorText)}`
+    );
 
-      if (!isTransientGeminiError(result.status, result.errorText)) {
-        return null;
-      }
+    if (!isTransientGeminiError(result.status, result.errorText)) {
+      return null;
+    }
 
-      const delayMs = GEMINI_RETRY_DELAYS_MS[attempt];
-      if (delayMs) {
-        await delay(delayMs);
-      }
+    const delayMs = GEMINI_RETRY_DELAYS_MS[attempt];
+    if (delayMs) {
+      await delay(delayMs);
     }
   }
 
