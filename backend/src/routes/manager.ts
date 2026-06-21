@@ -14,7 +14,7 @@ const todayString = () => new Date().toISOString().slice(0, 10);
 managerRouter.get('/dashboard', async (_req, res) => {
   const [customerCount, ingredients, orderCount, pendingOrderCount, completedRevenue] = await Promise.all([
     prisma.user.count({ where: { role: 'Customer' } }),
-    prisma.ingredient.findMany({ select: { stockQuantity: true, minStock: true } }),
+    prisma.ingredient.findMany({ where: { isStockManaged: true }, select: { stockQuantity: true, minStock: true } }),
     prisma.order.count(),
     prisma.order.count({ where: { status: 'Pending' } }),
     prisma.order.aggregate({ where: { status: 'Completed' }, _sum: { totalAmount: true } }),
@@ -71,7 +71,7 @@ managerRouter.patch('/orders/:id/status', async (req, res) => {
 });
 
 managerRouter.get('/inventory', async (_req, res) => {
-  const ingredients = await prisma.ingredient.findMany({ orderBy: { name: 'asc' }, take: 500 });
+  const ingredients = await prisma.ingredient.findMany({ where: { isStockManaged: true }, orderBy: { name: 'asc' }, take: 500 });
   res.json(ingredients);
 });
 
@@ -163,7 +163,7 @@ managerRouter.get('/inventory/closing/today', async (req, res) => {
   const date = dateSchema.default(todayString()).parse(req.query.date);
   const closingDate = toClosingDate(date);
   const [ingredients, closing] = await Promise.all([
-    prisma.ingredient.findMany({ orderBy: { name: 'asc' } }),
+    prisma.ingredient.findMany({ where: { isStockManaged: true }, orderBy: { name: 'asc' } }),
     prisma.inventoryClosing.findUnique({
       where: { closingDate },
       include: { items: { include: { ingredient: { select: { name: true } } }, orderBy: { ingredient: { name: 'asc' } } } },
@@ -213,7 +213,7 @@ managerRouter.post('/inventory/closing', async (req, res) => {
     return;
   }
 
-  const ingredients = await prisma.ingredient.findMany({ orderBy: { name: 'asc' } });
+  const ingredients = await prisma.ingredient.findMany({ where: { isStockManaged: true }, orderBy: { name: 'asc' } });
   if (ingredients.length !== body.items.length || ingredients.some((ingredient) => !uniqueIds.has(ingredient.id))) {
     res.status(400).json({ message: 'Cần kiểm đếm đầy đủ tất cả nguyên liệu trong kho' });
     return;
@@ -286,7 +286,7 @@ managerRouter.get('/inventory/analysis', async (req, res) => {
   const days = z.coerce.number().int().min(1).max(30).default(7).parse(req.query.days);
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const [ingredients, exportMovements, closingItems, latestClosing] = await Promise.all([
-    prisma.ingredient.findMany({ orderBy: { name: 'asc' } }),
+    prisma.ingredient.findMany({ where: { isStockManaged: true }, orderBy: { name: 'asc' } }),
     prisma.inventoryMovement.findMany({ where: { type: 'Export', createdAt: { gte: since } }, select: { ingredientId: true, quantityDelta: true } }),
     prisma.inventoryClosingItem.findMany({
       where: { closing: { closingDate: { gte: since } } },

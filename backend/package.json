@@ -11,6 +11,8 @@
     "seed:admin:prod": "node dist/scripts/seedAdmin.js",
     "seed:inventory": "ts-node src/scripts/seedInventory.ts",
     "seed:inventory:prod": "node dist/scripts/seedInventory.js",
+    "seed:dishes": "ts-node src/scripts/seedDishKnowledge.ts",
+    "seed:dishes:prod": "node dist/scripts/seedDishKnowledge.js",
     "build": "npx prisma generate && tsc -p tsconfig.json",
     "start": "node dist/index.js"
   },

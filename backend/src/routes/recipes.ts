@@ -12,7 +12,10 @@ recipesRouter.get('/', async (_req, res) => {
   res.json(
     list.map((r) => ({
       id: r.id,
+      sourceId: r.sourceId,
       name: r.name,
+      normalizedName: r.normalizedName,
+      category: r.category,
       description: r.description,
       tags: r.tags,
       timeMin: r.timeMin,

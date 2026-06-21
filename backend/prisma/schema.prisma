@@ -49,16 +49,20 @@ model User {
 }
 
 model Ingredient {
-  id            String                 @id @default(cuid())
-  name          String                 @unique
-  aliases       String[]
-  stockQuantity Int                    @default(0)
-  unit          FridgeUnit             @default(pcs)
-  minStock      Int                    @default(0)
-  movements     InventoryMovement[]
-  closingItems  InventoryClosingItem[]
-  createdAt     DateTime               @default(now())
-  updatedAt     DateTime               @updatedAt
+  id             String                 @id @default(cuid())
+  name           String                 @unique
+  aliases        String[]
+  normalizedName String?
+  nameEn         String?
+  category       String?
+  isStockManaged Boolean                @default(true)
+  stockQuantity  Int                    @default(0)
+  unit           FridgeUnit             @default(pcs)
+  minStock       Int                    @default(0)
+  movements      InventoryMovement[]
+  closingItems   InventoryClosingItem[]
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
 }
 
 model InventoryMovement {
@@ -116,17 +120,20 @@ model FridgeItem {
 }
 
 model Recipe {
-  id          String   @id @default(cuid())
-  name        String
-  description String
-  tags        String[]
-  timeMin     Int
-  servings    Int
-  imageUrl    String?
-  ingredients Json
-  steps       String[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(cuid())
+  sourceId       String?  @unique
+  name           String
+  normalizedName String?
+  category       String?
+  description    String
+  tags           String[]
+  timeMin        Int
+  servings       Int
+  imageUrl       String?
+  ingredients    Json
+  steps          String[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 model Order {
