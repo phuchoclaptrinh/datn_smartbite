@@ -8,9 +8,9 @@ export const managerRouter = Router();
 managerRouter.use(requireAuth, requireRole('Manager'));
 
 managerRouter.get('/dashboard', async (_req, res) => {
-  const [customerCount, ingredientCount, orderCount, pendingOrderCount, completedRevenue] = await Promise.all([
+  const [customerCount, ingredients, orderCount, pendingOrderCount, completedRevenue] = await Promise.all([
     prisma.user.count({ where: { role: 'Customer' } }),
-    prisma.ingredient.count(),
+    prisma.ingredient.findMany({ select: { stockQuantity: true, minStock: true } }),
     prisma.order.count(),
     prisma.order.count({ where: { status: 'Pending' } }),
     prisma.order.aggregate({ where: { status: 'Completed' }, _sum: { totalAmount: true } }),
@@ -18,7 +18,9 @@ managerRouter.get('/dashboard', async (_req, res) => {
 
   res.json({
     customerCount,
-    ingredientCount,
+    ingredientCount: ingredients.length,
+    outOfStockCount: ingredients.filter((item) => item.stockQuantity === 0).length,
+    lowStockCount: ingredients.filter((item) => item.stockQuantity > 0 && item.stockQuantity <= item.minStock).length,
     orderCount,
     pendingOrderCount,
     completedRevenue: completedRevenue._sum.totalAmount ?? 0,
@@ -70,10 +72,24 @@ managerRouter.get('/inventory', async (_req, res) => {
 });
 
 managerRouter.post('/inventory', async (req, res) => {
-  const body = z.object({ name: z.string().min(1), aliases: z.array(z.string().min(1)).default([]) }).parse(req.body);
+  const body = z
+    .object({
+      name: z.string().min(1),
+      aliases: z.array(z.string().min(1)).default([]),
+      stockQuantity: z.number().int().nonnegative().default(0),
+      unit: z.enum(['g', 'ml', 'pcs']).default('pcs'),
+      minStock: z.number().int().nonnegative().default(0),
+    })
+    .parse(req.body);
   try {
     const ingredient = await prisma.ingredient.create({
-      data: { name: body.name.trim(), aliases: body.aliases.map((item) => item.trim()) },
+      data: {
+        name: body.name.trim(),
+        aliases: body.aliases.map((item) => item.trim()),
+        stockQuantity: body.stockQuantity,
+        unit: body.unit,
+        minStock: body.minStock,
+      },
     });
     res.status(201).json(ingredient);
   } catch {
@@ -83,19 +99,49 @@ managerRouter.post('/inventory', async (req, res) => {
 
 managerRouter.patch('/inventory/:id', async (req, res) => {
   const id = z.string().min(1).parse(req.params.id);
-  const body = z.object({ name: z.string().min(1).optional(), aliases: z.array(z.string().min(1)).optional() }).parse(req.body);
+  const body = z
+    .object({
+      name: z.string().min(1).optional(),
+      aliases: z.array(z.string().min(1)).optional(),
+      stockQuantity: z.number().int().nonnegative().optional(),
+      unit: z.enum(['g', 'ml', 'pcs']).optional(),
+      minStock: z.number().int().nonnegative().optional(),
+    })
+    .parse(req.body);
   try {
     const ingredient = await prisma.ingredient.update({
       where: { id },
       data: {
         name: body.name?.trim(),
         aliases: body.aliases?.map((item) => item.trim()),
+        stockQuantity: body.stockQuantity,
+        unit: body.unit,
+        minStock: body.minStock,
       },
     });
     res.json(ingredient);
   } catch {
     res.status(404).json({ message: 'Không tìm thấy nguyên liệu' });
   }
+});
+
+managerRouter.patch('/inventory/:id/adjust', async (req, res) => {
+  const id = z.string().min(1).parse(req.params.id);
+  const body = z.object({ delta: z.number().int().refine((value) => value !== 0) }).parse(req.body);
+  const current = await prisma.ingredient.findUnique({ where: { id } });
+  if (!current) {
+    res.status(404).json({ message: 'Không tìm thấy nguyên liệu' });
+    return;
+  }
+
+  const stockQuantity = current.stockQuantity + body.delta;
+  if (stockQuantity < 0) {
+    res.status(400).json({ message: 'Số lượng xuất vượt quá tồn kho' });
+    return;
+  }
+
+  const ingredient = await prisma.ingredient.update({ where: { id }, data: { stockQuantity } });
+  res.json(ingredient);
 });
 
 managerRouter.delete('/inventory/:id', async (req, res) => {
