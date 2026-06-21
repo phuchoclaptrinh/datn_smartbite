@@ -26,30 +26,79 @@ enum UserRole {
   Manager
 }
 
+enum InventoryMovementType {
+  Import
+  Export
+  Adjustment
+}
+
 model User {
-  id          String      @id @default(cuid())
-  fullName    String
-  email       String      @unique
-  passwordHash String     @default("")
-  role        UserRole    @default(Customer)
-  phone       String?
-  tasteProfile String[]
-  allergies   String[]
-  fridgeItems FridgeItem[]
-  orders      Order[]
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id                String             @id @default(cuid())
+  fullName          String
+  email             String             @unique
+  passwordHash      String             @default("")
+  role              UserRole           @default(Customer)
+  phone             String?
+  tasteProfile      String[]
+  allergies         String[]
+  fridgeItems       FridgeItem[]
+  orders            Order[]
+  inventoryClosings InventoryClosing[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 }
 
 model Ingredient {
-  id            String     @id @default(cuid())
-  name          String     @unique
+  id            String                 @id @default(cuid())
+  name          String                 @unique
   aliases       String[]
-  stockQuantity Int        @default(0)
-  unit          FridgeUnit @default(pcs)
-  minStock      Int        @default(0)
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  stockQuantity Int                    @default(0)
+  unit          FridgeUnit             @default(pcs)
+  minStock      Int                    @default(0)
+  movements     InventoryMovement[]
+  closingItems  InventoryClosingItem[]
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+}
+
+model InventoryMovement {
+  id            String                @id @default(cuid())
+  ingredientId  String
+  ingredient    Ingredient            @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  type          InventoryMovementType
+  quantityDelta Int
+  note          String?
+  createdAt     DateTime              @default(now())
+
+  @@index([ingredientId, createdAt])
+  @@index([type, createdAt])
+}
+
+model InventoryClosing {
+  id          String                 @id @default(cuid())
+  closingDate DateTime               @unique @db.Date
+  createdById String
+  createdBy   User                   @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  note        String?
+  items       InventoryClosingItem[]
+  createdAt   DateTime               @default(now())
+
+  @@index([createdById, closingDate])
+}
+
+model InventoryClosingItem {
+  id               String           @id @default(cuid())
+  closingId        String
+  closing          InventoryClosing @relation(fields: [closingId], references: [id], onDelete: Cascade)
+  ingredientId     String
+  ingredient       Ingredient       @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  expectedQuantity Int
+  actualQuantity   Int
+  variance         Int
+  unit             FridgeUnit
+
+  @@unique([closingId, ingredientId])
+  @@index([ingredientId])
 }
 
 model FridgeItem {
@@ -81,18 +130,18 @@ model Recipe {
 }
 
 model Order {
-  id              String      @id @default(cuid())
-  userId          String
-  user            User        @relation(fields: [userId], references: [id], onDelete: Restrict)
-  items           Json
-  subtotalAmount  Int
+  id                String      @id @default(cuid())
+  userId            String
+  user              User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  items             Json
+  subtotalAmount    Int
   deliveryFeeAmount Int
-  totalAmount     Int
-  currency        String      @default("VND")
-  status          OrderStatus @default(Pending)
-  note            String?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  totalAmount       Int
+  currency          String      @default("VND")
+  status            OrderStatus @default(Pending)
+  note              String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
 
   @@index([userId, createdAt])
 }

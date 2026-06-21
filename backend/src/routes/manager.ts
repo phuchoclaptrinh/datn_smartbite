@@ -7,6 +7,10 @@ export const managerRouter = Router();
 
 managerRouter.use(requireAuth, requireRole('Manager'));
 
+const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const toClosingDate = (value: string) => new Date(`${value}T00:00:00.000Z`);
+const todayString = () => new Date().toISOString().slice(0, 10);
+
 managerRouter.get('/dashboard', async (_req, res) => {
   const [customerCount, ingredients, orderCount, pendingOrderCount, completedRevenue] = await Promise.all([
     prisma.user.count({ where: { role: 'Customer' } }),
@@ -140,8 +144,189 @@ managerRouter.patch('/inventory/:id/adjust', async (req, res) => {
     return;
   }
 
-  const ingredient = await prisma.ingredient.update({ where: { id }, data: { stockQuantity } });
+  const ingredient = await prisma.$transaction(async (tx) => {
+    const updated = await tx.ingredient.update({ where: { id }, data: { stockQuantity } });
+    await tx.inventoryMovement.create({
+      data: {
+        ingredientId: id,
+        type: body.delta > 0 ? 'Import' : 'Export',
+        quantityDelta: body.delta,
+        note: body.delta > 0 ? 'Nhập kho nhanh' : 'Xuất kho nhanh',
+      },
+    });
+    return updated;
+  });
   res.json(ingredient);
+});
+
+managerRouter.get('/inventory/closing/today', async (req, res) => {
+  const date = dateSchema.default(todayString()).parse(req.query.date);
+  const closingDate = toClosingDate(date);
+  const [ingredients, closing] = await Promise.all([
+    prisma.ingredient.findMany({ orderBy: { name: 'asc' } }),
+    prisma.inventoryClosing.findUnique({
+      where: { closingDate },
+      include: { items: { include: { ingredient: { select: { name: true } } }, orderBy: { ingredient: { name: 'asc' } } } },
+    }),
+  ]);
+
+  res.json({
+    date,
+    closed: !!closing,
+    closing: closing
+      ? {
+          id: closing.id,
+          note: closing.note,
+          createdAt: closing.createdAt,
+          items: closing.items.map((item) => ({
+            ingredientId: item.ingredientId,
+            name: item.ingredient.name,
+            expectedQuantity: item.expectedQuantity,
+            actualQuantity: item.actualQuantity,
+            variance: item.variance,
+            unit: item.unit,
+          })),
+        }
+      : null,
+    inventory: ingredients.map((item) => ({
+      ingredientId: item.id,
+      name: item.name,
+      expectedQuantity: item.stockQuantity,
+      unit: item.unit,
+      minStock: item.minStock,
+    })),
+  });
+});
+
+managerRouter.post('/inventory/closing', async (req, res) => {
+  const body = z
+    .object({
+      date: dateSchema.default(todayString()),
+      note: z.string().max(500).optional(),
+      items: z.array(z.object({ ingredientId: z.string().min(1), actualQuantity: z.number().int().nonnegative() })).min(1),
+    })
+    .parse(req.body);
+
+  const uniqueIds = new Set(body.items.map((item) => item.ingredientId));
+  if (uniqueIds.size !== body.items.length) {
+    res.status(400).json({ message: 'Danh sách kiểm kho có nguyên liệu trùng lặp' });
+    return;
+  }
+
+  const ingredients = await prisma.ingredient.findMany({ orderBy: { name: 'asc' } });
+  if (ingredients.length !== body.items.length || ingredients.some((ingredient) => !uniqueIds.has(ingredient.id))) {
+    res.status(400).json({ message: 'Cần kiểm đếm đầy đủ tất cả nguyên liệu trong kho' });
+    return;
+  }
+
+  const actualById = new Map(body.items.map((item) => [item.ingredientId, item.actualQuantity]));
+  const closingDate = toClosingDate(body.date);
+
+  try {
+    const closing = await prisma.$transaction(
+      async (tx) => {
+        const existing = await tx.inventoryClosing.findUnique({ where: { closingDate }, select: { id: true } });
+        if (existing) throw new Error('CLOSING_EXISTS');
+
+        const created = await tx.inventoryClosing.create({
+          data: {
+            closingDate,
+            createdById: req.authUser!.id,
+            note: body.note?.trim() || null,
+            items: {
+              create: ingredients.map((ingredient) => {
+                const actualQuantity = actualById.get(ingredient.id)!;
+                return {
+                  ingredientId: ingredient.id,
+                  expectedQuantity: ingredient.stockQuantity,
+                  actualQuantity,
+                  variance: actualQuantity - ingredient.stockQuantity,
+                  unit: ingredient.unit,
+                };
+              }),
+            },
+          },
+          include: { items: true },
+        });
+
+        for (const ingredient of ingredients) {
+          const actualQuantity = actualById.get(ingredient.id)!;
+          const variance = actualQuantity - ingredient.stockQuantity;
+          await tx.ingredient.update({ where: { id: ingredient.id }, data: { stockQuantity: actualQuantity } });
+          if (variance !== 0) {
+            await tx.inventoryMovement.create({
+              data: {
+                ingredientId: ingredient.id,
+                type: 'Adjustment',
+                quantityDelta: variance,
+                note: `Đối soát cuối ngày ${body.date}`,
+              },
+            });
+          }
+        }
+
+        return created;
+      },
+      { isolationLevel: 'Serializable' }
+    );
+
+    const totalVariance = closing.items.reduce((sum, item) => sum + Math.abs(item.variance), 0);
+    const mismatchCount = closing.items.filter((item) => item.variance !== 0).length;
+    res.status(201).json({ id: closing.id, date: body.date, itemCount: closing.items.length, mismatchCount, totalVariance });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CLOSING_EXISTS') {
+      res.status(409).json({ message: 'Ngày này đã được chốt kho' });
+      return;
+    }
+    throw error;
+  }
+});
+
+managerRouter.get('/inventory/analysis', async (req, res) => {
+  const days = z.coerce.number().int().min(1).max(30).default(7).parse(req.query.days);
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const [ingredients, exportMovements, closingItems, latestClosing] = await Promise.all([
+    prisma.ingredient.findMany({ orderBy: { name: 'asc' } }),
+    prisma.inventoryMovement.findMany({ where: { type: 'Export', createdAt: { gte: since } }, select: { ingredientId: true, quantityDelta: true } }),
+    prisma.inventoryClosingItem.findMany({
+      where: { closing: { closingDate: { gte: since } } },
+      select: { ingredientId: true, variance: true },
+    }),
+    prisma.inventoryClosing.findFirst({ orderBy: { closingDate: 'desc' }, select: { closingDate: true, createdAt: true } }),
+  ]);
+
+  const usage = new Map<string, number>();
+  for (const movement of exportMovements) usage.set(movement.ingredientId, (usage.get(movement.ingredientId) ?? 0) + Math.abs(movement.quantityDelta));
+  const variance = new Map<string, { total: number; count: number }>();
+  for (const item of closingItems) {
+    const current = variance.get(item.ingredientId) ?? { total: 0, count: 0 };
+    variance.set(item.ingredientId, { total: current.total + Math.abs(item.variance), count: current.count + 1 });
+  }
+
+  const riskOrder = { Out: 0, Low: 1, Watch: 2, Good: 3 } as const;
+  type InventoryRisk = keyof typeof riskOrder;
+  const analysis = ingredients.map((ingredient) => {
+    const averageDailyUsage = Math.ceil((usage.get(ingredient.id) ?? 0) / days);
+    const varianceData = variance.get(ingredient.id);
+    const averageVariance = varianceData ? Math.round(varianceData.total / varianceData.count) : 0;
+    const targetStock = Math.max(ingredient.minStock * 2, averageDailyUsage * 3);
+    const suggestedImport = Math.max(0, targetStock - ingredient.stockQuantity);
+    const risk: InventoryRisk = ingredient.stockQuantity === 0 ? 'Out' : ingredient.stockQuantity <= ingredient.minStock ? 'Low' : suggestedImport > 0 ? 'Watch' : 'Good';
+    return {
+      ingredientId: ingredient.id,
+      name: ingredient.name,
+      unit: ingredient.unit,
+      currentStock: ingredient.stockQuantity,
+      minStock: ingredient.minStock,
+      averageDailyUsage,
+      averageVariance,
+      suggestedImport,
+      risk,
+    };
+  });
+
+  analysis.sort((a, b) => riskOrder[a.risk] - riskOrder[b.risk] || b.suggestedImport - a.suggestedImport);
+  res.json({ days, latestClosing, items: analysis });
 });
 
 managerRouter.delete('/inventory/:id', async (req, res) => {
