@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { FridgeUnit, Prisma } from '@prisma/client';
+import type { FridgeUnit, InventoryGroup, Prisma } from '@prisma/client';
 import { prisma } from '../prisma';
 
 type SourceIngredient = {
@@ -88,6 +88,16 @@ const estimatePrice = (dish: SourceDish) => {
 
 const countUnits = new Set(['cái', 'quả', 'trái', 'củ', 'nhánh', 'tép', 'cây', 'con', 'gói', 'lá', 'miếng', 'hộp', 'bó', 'ống', 'hạt']);
 
+const sourceInventoryGroup = (category?: string): InventoryGroup => {
+  if (category === 'vegetables') return 'Vegetable';
+  if (category === 'fresh_fruits') return 'Fruit';
+  if (category === 'seasonings') return 'Auxiliary';
+  if (category?.includes('meat') || category?.includes('seafood') || category?.includes('fish')) return 'Main';
+  if (category?.includes('rice') || category?.includes('noodle') || category?.includes('flour')) return 'Staple';
+  if (category?.includes('sauce') || category?.includes('oil') || category?.includes('beverage')) return 'Sauce';
+  return 'Other';
+};
+
 const normalizeQuantity = (quantity?: number, rawUnit?: string): { quantity?: number; unit?: FridgeUnit } => {
   if (!quantity || quantity <= 0) return {};
   const unit = (rawUnit ?? '').trim().toLowerCase();
@@ -118,7 +128,7 @@ const main = async () => {
 
   const existingIngredients = await prisma.ingredient.findMany({
     where: { name: { in: [...ingredientByName.keys()] } },
-    select: { name: true, aliases: true },
+    select: { name: true, aliases: true, isStockManaged: true },
   });
   const existingByName = new Map(existingIngredients.map((item) => [item.name, item]));
 
@@ -131,6 +141,7 @@ const main = async () => {
         normalizedName: source.name_normalized,
         nameEn: source.name_en,
         category: source.category,
+        inventoryGroup: existingByName.get(name)?.isStockManaged ? undefined : sourceInventoryGroup(source.category),
       },
       create: {
         name,
@@ -138,6 +149,7 @@ const main = async () => {
         normalizedName: source.name_normalized,
         nameEn: source.name_en,
         category: source.category,
+        inventoryGroup: sourceInventoryGroup(source.category),
         isStockManaged: false,
         stockQuantity: 0,
         unit: 'pcs',

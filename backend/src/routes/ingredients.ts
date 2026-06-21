@@ -18,6 +18,7 @@ ingredientsRouter.get('/', async (_req, res) => {
       nameEn: i.nameEn,
       category: i.category,
       isStockManaged: i.isStockManaged,
+      inventoryGroup: i.inventoryGroup,
     }))
   );
 });

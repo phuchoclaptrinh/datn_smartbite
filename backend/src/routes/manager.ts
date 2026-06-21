@@ -83,6 +83,7 @@ managerRouter.post('/inventory', async (req, res) => {
       stockQuantity: z.number().int().nonnegative().default(0),
       unit: z.enum(['g', 'ml', 'pcs']).default('pcs'),
       minStock: z.number().int().nonnegative().default(0),
+      inventoryGroup: z.enum(['Main', 'Auxiliary', 'Vegetable', 'Fruit', 'Staple', 'Sauce', 'Other']).default('Other'),
     })
     .parse(req.body);
   try {
@@ -93,6 +94,7 @@ managerRouter.post('/inventory', async (req, res) => {
         stockQuantity: body.stockQuantity,
         unit: body.unit,
         minStock: body.minStock,
+        inventoryGroup: body.inventoryGroup,
       },
     });
     res.status(201).json(ingredient);
@@ -110,6 +112,7 @@ managerRouter.patch('/inventory/:id', async (req, res) => {
       stockQuantity: z.number().int().nonnegative().optional(),
       unit: z.enum(['g', 'ml', 'pcs']).optional(),
       minStock: z.number().int().nonnegative().optional(),
+      inventoryGroup: z.enum(['Main', 'Auxiliary', 'Vegetable', 'Fruit', 'Staple', 'Sauce', 'Other']).optional(),
     })
     .parse(req.body);
   try {
@@ -121,6 +124,7 @@ managerRouter.patch('/inventory/:id', async (req, res) => {
         stockQuantity: body.stockQuantity,
         unit: body.unit,
         minStock: body.minStock,
+        inventoryGroup: body.inventoryGroup,
       },
     });
     res.json(ingredient);
