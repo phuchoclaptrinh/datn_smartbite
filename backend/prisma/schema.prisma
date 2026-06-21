@@ -129,6 +129,8 @@ model Recipe {
   tags           String[]
   timeMin        Int
   servings       Int
+  priceAmount    Int      @default(0)
+  currency       String   @default("VND")
   imageUrl       String?
   ingredients    Json
   steps          String[]

@@ -20,6 +20,7 @@ recipesRouter.get('/', async (_req, res) => {
       tags: r.tags,
       timeMin: r.timeMin,
       servings: r.servings,
+      price: { amount: r.priceAmount, currency: r.currency },
       imageUrl: r.imageUrl,
       ingredients: r.ingredients,
       steps: r.steps,
@@ -37,6 +38,7 @@ recipesRouter.post('/', async (req, res) => {
       tags: z.array(z.string().min(1)).optional(),
       timeMin: z.number().int().positive(),
       servings: z.number().int().positive(),
+      priceAmount: z.number().int().nonnegative().default(0),
       imageUrl: z.string().url().optional(),
       ingredients: z
         .array(
@@ -59,6 +61,8 @@ recipesRouter.post('/', async (req, res) => {
       tags: body.tags ?? [],
       timeMin: body.timeMin,
       servings: body.servings,
+      priceAmount: body.priceAmount,
+      currency: 'VND',
       imageUrl: body.imageUrl,
       ingredients: body.ingredients,
       steps: body.steps,

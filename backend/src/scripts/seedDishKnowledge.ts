@@ -57,6 +57,35 @@ const estimatedTime: Record<string, number> = {
   'an vat': 30,
 };
 
+const basePrice: Record<string, number> = {
+  'mon banh': 35000,
+  'mon chien': 55000,
+  'mon xao': 59000,
+  'mon canh': 49000,
+  'mon kho': 59000,
+  'mon nuong': 75000,
+  'mon goi - salad': 55000,
+  'mon nuoc': 55000,
+  'mon lau': 179000,
+  'mon hap': 69000,
+  'mon chao': 45000,
+  'mon chay': 45000,
+  'mon trang mieng': 35000,
+  'an vat': 39000,
+};
+
+const estimatePrice = (dish: SourceDish) => {
+  const text = `${dish.name_normalized ?? ''} ${(dish.ingredients ?? []).map((item) => item.name_normalized ?? '').join(' ')}`;
+  let price = basePrice[dish.category ?? ''] ?? 55000;
+  if (/ca hoi/.test(text)) price += 30000;
+  else if (/cua|ghe|tom hum/.test(text)) price += 30000;
+  else if (/tom|muc|hai san/.test(text)) price += 20000;
+  else if (/thit bo| bo /.test(` ${text} `)) price += 20000;
+  else if (/ga|heo|ca /.test(text)) price += 10000;
+  if ((dish.ingredients ?? []).length >= 11) price += 10000;
+  return Math.ceil(price / 10000) * 10000 - 1000;
+};
+
 const countUnits = new Set(['cái', 'quả', 'trái', 'củ', 'nhánh', 'tép', 'cây', 'con', 'gói', 'lá', 'miếng', 'hộp', 'bó', 'ống', 'hạt']);
 
 const normalizeQuantity = (quantity?: number, rawUnit?: string): { quantity?: number; unit?: FridgeUnit } => {
@@ -132,6 +161,7 @@ const main = async () => {
     }) satisfies Prisma.JsonArray;
     const importantNames = (dish.ingredients ?? []).filter((item) => (item.importance ?? 1) >= 2).slice(0, 5).map((item) => item.name_vi);
     const label = categoryLabel[category] ?? category;
+    const priceAmount = estimatePrice(dish);
     const description = `${dish.name_vi} thuộc nhóm ${label.toLowerCase()}${importantNames.length ? `, sử dụng ${importantNames.join(', ')}` : ''}.`;
 
     await prisma.recipe.upsert({
@@ -144,6 +174,8 @@ const main = async () => {
         tags: [label],
         timeMin: estimatedTime[category] ?? 35,
         servings: 4,
+        priceAmount,
+        currency: 'VND',
         ingredients,
         steps: [],
       },
@@ -156,6 +188,8 @@ const main = async () => {
         tags: [label],
         timeMin: estimatedTime[category] ?? 35,
         servings: 4,
+        priceAmount,
+        currency: 'VND',
         ingredients,
         steps: [],
       },
