@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { requireAuth, requireRole } from '../auth';
 import { prisma } from '../prisma';
 
 export const usersRouter = Router();
@@ -18,8 +19,10 @@ usersRouter.post(
     const doc = await prisma.user.create({
       data: {
         fullName: body.fullName,
-        email: body.email,
+        email: body.email.trim().toLowerCase(),
         phone: body.phone,
+        passwordHash: '',
+        role: 'Customer',
         tasteProfile: [],
         allergies: [],
       },
@@ -30,7 +33,7 @@ usersRouter.post(
   }
 );
 
-usersRouter.get('/', async (_req, res) => {
+usersRouter.get('/', requireAuth, requireRole('Manager'), async (_req, res) => {
   const users = await prisma.user.findMany({
     orderBy: { createdAt: 'desc' },
     take: 50,
@@ -38,6 +41,7 @@ usersRouter.get('/', async (_req, res) => {
   res.json(
     users.map((u) => ({
       id: u.id,
+      role: u.role,
       profile: {
         fullName: u.fullName,
         email: u.email,

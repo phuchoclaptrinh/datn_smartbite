@@ -7,6 +7,8 @@
     "postinstall": "npx prisma generate",
     "dev": "nodemon",
     "db:migrate": "npx prisma migrate deploy",
+    "seed:admin": "ts-node src/scripts/seedAdmin.ts",
+    "seed:admin:prod": "node dist/scripts/seedAdmin.js",
     "build": "npx prisma generate && tsc -p tsconfig.json",
     "start": "node dist/index.js"
   },

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { requireAuth, requireRole } from '../auth';
 import { prisma } from '../prisma';
 
 export const ordersRouter = Router();
@@ -64,7 +65,7 @@ ordersRouter.post('/', async (req, res) => {
   res.status(201).json({ id: doc.id });
 });
 
-ordersRouter.patch('/:id/status', async (req, res) => {
+ordersRouter.patch('/:id/status', requireAuth, requireRole('Manager'), async (req, res) => {
   const id = z.string().min(1).parse(req.params.id);
   const body = z
     .object({

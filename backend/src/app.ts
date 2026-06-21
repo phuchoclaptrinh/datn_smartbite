@@ -3,12 +3,14 @@ import express from 'express';
 import { ZodError } from 'zod';
 import { env } from './env';
 import { healthRouter } from './routes/health';
+import { authRouter } from './routes/auth';
 import { usersRouter } from './routes/users';
 import { ingredientsRouter } from './routes/ingredients';
 import { fridgeRouter } from './routes/fridge';
 import { recipesRouter } from './routes/recipes';
 import { ordersRouter } from './routes/orders';
 import { chatRouter } from './routes/chat';
+import { managerRouter } from './routes/manager';
 import { rateLimit, securityHeaders } from './middleware/security';
 
 const corsOrigin = env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean);
@@ -27,12 +29,14 @@ export const buildApp = () => {
   app.use(express.json({ limit: '2mb' }));
 
   app.use('/health', healthRouter);
+  app.use('/api/auth', authRouter);
   app.use('/api/users', usersRouter);
   app.use('/api/ingredients', ingredientsRouter);
   app.use('/api/fridge', fridgeRouter);
   app.use('/api/recipes', recipesRouter);
   app.use('/api/orders', ordersRouter);
   app.use('/api/chat', chatRouter);
+  app.use('/api/manager', managerRouter);
 
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (err instanceof ZodError) {

@@ -21,10 +21,17 @@ enum OrderStatus {
   Cancelled
 }
 
+enum UserRole {
+  Customer
+  Manager
+}
+
 model User {
   id          String      @id @default(cuid())
   fullName    String
   email       String      @unique
+  passwordHash String     @default("")
+  role        UserRole    @default(Customer)
   phone       String?
   tasteProfile String[]
   allergies   String[]
