@@ -22,6 +22,10 @@ jobs:
             cd ${{ secrets.EC2_PROJECT_DIR }}
             git fetch origin main
             git reset --hard origin/main
+            df -h /
+            docker builder prune -af
+            docker image prune -af
+            docker container prune -f
             docker compose up -d --build backend
             docker compose ps
             for i in {1..12}; do
