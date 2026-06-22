@@ -23,7 +23,8 @@ const EnvSchema = z
 
     CORS_ORIGIN: z.string().default('*'),
 
-    GEMINI_API_KEY: z.string().min(1).optional(),
+    GEMINI_API_KEY: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
+    GEMINI_ENABLED: z.enum(['true', 'false']).default('true').transform((value) => value === 'true'),
     GEMINI_MODEL: z.string().min(1).default('gemini-2.5-flash'),
   })
   .superRefine((val, ctx) => {
@@ -79,6 +80,7 @@ export const env = EnvSchema.parse({
   CORS_ORIGIN: process.env.CORS_ORIGIN,
 
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+  GEMINI_ENABLED: process.env.GEMINI_ENABLED,
   GEMINI_MODEL: process.env.GEMINI_MODEL,
 });
 
