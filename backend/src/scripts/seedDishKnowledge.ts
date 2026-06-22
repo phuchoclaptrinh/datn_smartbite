@@ -117,6 +117,15 @@ const main = async () => {
   const dishes = JSON.parse(fs.readFileSync(dataPath, 'utf8')) as SourceDish[];
   if (dishes.length !== 100) throw new Error(`Expected 100 dishes, found ${dishes.length}`);
 
+  await prisma.recipe.deleteMany({
+    where: {
+      sourceId: {
+        not: null,
+        notIn: dishes.map((dish) => dish.id),
+      },
+    },
+  });
+
   const ingredientByName = new Map<string, SourceIngredient>();
   for (const dish of dishes) {
     for (const ingredient of dish.ingredients ?? []) {
