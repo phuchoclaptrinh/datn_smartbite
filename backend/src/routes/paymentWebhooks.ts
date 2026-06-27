@@ -112,7 +112,13 @@ paymentWebhooksRouter.post('/bank-webhook', async (req, res) => {
   });
 
   if (!matchedOrder) {
-    res.status(404).json({ message: 'No pending QR order matched this transaction' });
+    res.json({
+      ok: true,
+      matched: false,
+      message: 'Webhook received, but no pending QR order matched this transaction',
+      amount: body.amount,
+      candidateCount: candidates.length,
+    });
     return;
   }
 
@@ -129,5 +135,5 @@ paymentWebhooksRouter.post('/bank-webhook', async (req, res) => {
     select: { id: true, status: true, totalAmount: true },
   });
 
-  res.json({ ok: true, orderId: updated.id, status: updated.status, amount: updated.totalAmount });
+  res.json({ ok: true, matched: true, orderId: updated.id, status: updated.status, amount: updated.totalAmount });
 });
