@@ -55,7 +55,7 @@ const parseTransaction = (raw: unknown) => {
   return null;
 };
 
-const markQrPaymentPaid = (note: string, input: { transactionId?: string; bankCode?: string; amount: number }) => {
+const markQrPaymentPaid = (note: string, input: { transactionId?: string; bankCode?: string; amount: number; matchReason: string }) => {
   const lines = note
     .split('\n')
     .filter(
@@ -64,6 +64,7 @@ const markQrPaymentPaid = (note: string, input: { transactionId?: string; bankCo
         !line.startsWith('Ma giao dich NH:') &&
         !line.startsWith('Ngan hang webhook:') &&
         !line.startsWith('So tien da nhan:') &&
+        !line.startsWith('Kieu doi soat:') &&
         !line.startsWith('Thoi gian xac nhan:')
     );
 
@@ -71,6 +72,7 @@ const markQrPaymentPaid = (note: string, input: { transactionId?: string; bankCo
   if (input.transactionId) lines.push(`Ma giao dich NH: ${input.transactionId}`);
   if (input.bankCode) lines.push(`Ngan hang webhook: ${input.bankCode}`);
   lines.push(`So tien da nhan: ${input.amount}`);
+  lines.push(`Kieu doi soat: ${input.matchReason}`);
   lines.push(`Thoi gian xac nhan: ${new Date().toISOString()}`);
 
   return lines.join('\n');
@@ -103,13 +105,22 @@ paymentWebhooksRouter.post('/bank-webhook', async (req, res) => {
     take: 50,
   });
 
-  const matchedOrder = candidates.find((order) => {
+  let matchReason = 'payment-content';
+  let matchedOrder = candidates.find((order) => {
     const note = order.note ?? '';
     if (!note.includes('Trang thai thanh toan: Pending')) return false;
     const paymentContent = extractPaymentContent(note);
     if (!paymentContent) return false;
     return normalizedDescription.includes(normalizeText(paymentContent)) || normalizedDescriptionCode.includes(normalizePaymentCode(paymentContent));
   });
+
+  if (!matchedOrder && normalizedDescriptionCode.includes('SMARTBITE')) {
+    const recentCandidates = candidates.filter((order) => Date.now() - order.createdAt.getTime() <= 60 * 60 * 1000);
+    if (recentCandidates.length === 1) {
+      matchedOrder = recentCandidates[0];
+      matchReason = 'single-recent-amount';
+    }
+  }
 
   if (!matchedOrder) {
     res.json({
@@ -118,6 +129,7 @@ paymentWebhooksRouter.post('/bank-webhook', async (req, res) => {
       message: 'Webhook received, but no pending QR order matched this transaction',
       amount: body.amount,
       candidateCount: candidates.length,
+      smartbiteDetected: normalizedDescriptionCode.includes('SMARTBITE'),
     });
     return;
   }
@@ -130,10 +142,11 @@ paymentWebhooksRouter.post('/bank-webhook', async (req, res) => {
         amount: body.amount,
         transactionId,
         bankCode: body.bankCode ?? body.gateway,
+        matchReason,
       }),
     },
     select: { id: true, status: true, totalAmount: true },
   });
 
-  res.json({ ok: true, matched: true, orderId: updated.id, status: updated.status, amount: updated.totalAmount });
+  res.json({ ok: true, matched: true, matchReason, orderId: updated.id, status: updated.status, amount: updated.totalAmount });
 });
