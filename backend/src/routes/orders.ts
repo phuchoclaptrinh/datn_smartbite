@@ -5,6 +5,26 @@ import { prisma } from '../prisma';
 
 export const ordersRouter = Router();
 
+const paymentInfoSchema = z.object({
+  paymentMethod: z.enum(['COD', 'QR']).default('COD'),
+  paymentStatus: z.enum(['Unpaid', 'Pending', 'Paid']).optional(),
+  paymentProvider: z.string().max(80).optional(),
+  paymentQrUrl: z.string().url().optional(),
+  paymentContent: z.string().max(120).optional(),
+});
+
+const parsePaymentFromNote = (note?: string | null) => {
+  if (!note) return {};
+  const method = note.match(/Thanh toan: ([^\n]+)/)?.[1]?.trim();
+  const status = note.match(/Trang thai thanh toan: ([^\n]+)/)?.[1]?.trim();
+  const qrUrl = note.match(/QR: ([^\n]+)/)?.[1]?.trim();
+  return {
+    paymentMethod: method?.includes('QR') ? 'QR' : method ? 'COD' : undefined,
+    paymentStatus: status === 'Pending' || status === 'Paid' || status === 'Unpaid' ? status : undefined,
+    paymentQrUrl: qrUrl,
+  };
+};
+
 ordersRouter.get('/', async (req, res) => {
   const userId = z.string().min(1).parse(req.query.userId);
   const list = await prisma.order.findMany({
@@ -21,6 +41,7 @@ ordersRouter.get('/', async (req, res) => {
       deliveryFee: { amount: o.deliveryFeeAmount, currency: o.currency },
       total: { amount: o.totalAmount, currency: o.currency },
       status: o.status,
+      ...parsePaymentFromNote(o.note),
       note: o.note,
       createdAt: o.createdAt,
       updatedAt: o.updatedAt,
@@ -43,10 +64,22 @@ ordersRouter.post('/', async (req, res) => {
       deliveryFee: z.object({ amount: z.number().int().nonnegative(), currency: z.literal('VND') }),
       note: z.string().max(200).optional(),
     })
+    .merge(paymentInfoSchema)
     .parse(req.body);
 
   const subtotalAmount = body.items.reduce((sum, it) => sum + it.price.amount * it.quantity, 0);
   const totalAmount = subtotalAmount + body.deliveryFee.amount;
+  const paymentStatus = body.paymentStatus ?? (body.paymentMethod === 'QR' ? 'Pending' : 'Unpaid');
+  const paymentNote = [
+    body.note?.trim(),
+    `Thanh toan: ${body.paymentMethod === 'QR' ? 'QR code' : 'Tien mat khi nhan hang'}`,
+    `Trang thai thanh toan: ${paymentStatus}`,
+    body.paymentProvider ? `Ngan hang/vi: ${body.paymentProvider}` : undefined,
+    body.paymentContent ? `Noi dung CK: ${body.paymentContent}` : undefined,
+    body.paymentQrUrl ? `QR: ${body.paymentQrUrl}` : undefined,
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   const doc = await prisma.order.create({
     data: {
@@ -57,7 +90,7 @@ ordersRouter.post('/', async (req, res) => {
       totalAmount,
       currency: 'VND',
       status: 'Pending',
-      note: body.note,
+      note: paymentNote,
     },
     select: { id: true },
   });
