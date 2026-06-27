@@ -322,7 +322,6 @@ const main = async () => {
         tags: [label],
         timeMin: estimatedTime[category] ?? 35,
         servings: 4,
-        priceAmount,
         currency: 'VND',
         imageUrl,
         ingredients,
