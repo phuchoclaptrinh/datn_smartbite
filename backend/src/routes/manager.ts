@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireRole } from '../auth';
 import { getOrderConfirmationMode, setOrderConfirmationMode } from '../orderSettings';
@@ -77,7 +77,7 @@ managerRouter.patch('/orders/:id/status', async (req, res) => {
     const order = await prisma.order.update({ where: { id }, data: { status: body.status }, select: { id: true, status: true } });
     res.json(order);
   } catch {
-    res.status(404).json({ message: 'Không tìm thấy đơn hàng' });
+    res.status(404).json({ message: 'KhÃ´ng tÃ¬m tháº¥y Ä‘Æ¡n hÃ ng' });
   }
 });
 
@@ -110,7 +110,7 @@ managerRouter.post('/inventory', async (req, res) => {
     });
     res.status(201).json(ingredient);
   } catch {
-    res.status(409).json({ message: 'Nguyên liệu đã tồn tại' });
+    res.status(409).json({ message: 'NguyÃªn liá»‡u Ä‘Ã£ tá»“n táº¡i' });
   }
 });
 
@@ -140,7 +140,7 @@ managerRouter.patch('/inventory/:id', async (req, res) => {
     });
     res.json(ingredient);
   } catch {
-    res.status(404).json({ message: 'Không tìm thấy nguyên liệu' });
+    res.status(404).json({ message: 'KhÃ´ng tÃ¬m tháº¥y nguyÃªn liá»‡u' });
   }
 });
 
@@ -149,13 +149,13 @@ managerRouter.patch('/inventory/:id/adjust', async (req, res) => {
   const body = z.object({ delta: z.number().int().refine((value) => value !== 0) }).parse(req.body);
   const current = await prisma.ingredient.findUnique({ where: { id } });
   if (!current) {
-    res.status(404).json({ message: 'Không tìm thấy nguyên liệu' });
+    res.status(404).json({ message: 'KhÃ´ng tÃ¬m tháº¥y nguyÃªn liá»‡u' });
     return;
   }
 
   const stockQuantity = current.stockQuantity + body.delta;
   if (stockQuantity < 0) {
-    res.status(400).json({ message: 'Số lượng xuất vượt quá tồn kho' });
+    res.status(400).json({ message: 'Sá»‘ lÆ°á»£ng xuáº¥t vÆ°á»£t quÃ¡ tá»“n kho' });
     return;
   }
 
@@ -166,7 +166,7 @@ managerRouter.patch('/inventory/:id/adjust', async (req, res) => {
         ingredientId: id,
         type: body.delta > 0 ? 'Import' : 'Export',
         quantityDelta: body.delta,
-        note: body.delta > 0 ? 'Nhập kho nhanh' : 'Xuất kho nhanh',
+        note: body.delta > 0 ? 'Nháº­p kho nhanh' : 'Xuáº¥t kho nhanh',
       },
     });
     return updated;
@@ -224,13 +224,13 @@ managerRouter.post('/inventory/closing', async (req, res) => {
 
   const uniqueIds = new Set(body.items.map((item) => item.ingredientId));
   if (uniqueIds.size !== body.items.length) {
-    res.status(400).json({ message: 'Danh sách kiểm kho có nguyên liệu trùng lặp' });
+    res.status(400).json({ message: 'Danh sÃ¡ch kiá»ƒm kho cÃ³ nguyÃªn liá»‡u trÃ¹ng láº·p' });
     return;
   }
 
   const ingredients = await prisma.ingredient.findMany({ where: { isStockManaged: true }, orderBy: { name: 'asc' } });
   if (ingredients.length !== body.items.length || ingredients.some((ingredient) => !uniqueIds.has(ingredient.id))) {
-    res.status(400).json({ message: 'Cần kiểm đếm đầy đủ tất cả nguyên liệu trong kho' });
+    res.status(400).json({ message: 'Cáº§n kiá»ƒm Ä‘áº¿m Ä‘áº§y Ä‘á»§ táº¥t cáº£ nguyÃªn liá»‡u trong kho' });
     return;
   }
 
@@ -274,7 +274,7 @@ managerRouter.post('/inventory/closing', async (req, res) => {
                 ingredientId: ingredient.id,
                 type: 'Adjustment',
                 quantityDelta: variance,
-                note: `Đối soát cuối ngày ${body.date}`,
+                note: `Äá»‘i soÃ¡t cuá»‘i ngÃ y ${body.date}`,
               },
             });
           }
@@ -290,7 +290,7 @@ managerRouter.post('/inventory/closing', async (req, res) => {
     res.status(201).json({ id: closing.id, date: body.date, itemCount: closing.items.length, mismatchCount, totalVariance });
   } catch (error) {
     if (error instanceof Error && error.message === 'CLOSING_EXISTS') {
-      res.status(409).json({ message: 'Ngày này đã được chốt kho' });
+      res.status(409).json({ message: 'NgÃ y nÃ y Ä‘Ã£ Ä‘Æ°á»£c chá»‘t kho' });
       return;
     }
     throw error;
@@ -350,7 +350,7 @@ managerRouter.delete('/inventory/:id', async (req, res) => {
     await prisma.ingredient.delete({ where: { id } });
     res.json({ ok: true });
   } catch {
-    res.status(404).json({ message: 'Không tìm thấy nguyên liệu' });
+    res.status(404).json({ message: 'KhÃ´ng tÃ¬m tháº¥y nguyÃªn liá»‡u' });
   }
 });
 
@@ -373,3 +373,4 @@ managerRouter.get('/customers', async (_req, res) => {
     }))
   );
 });
+
