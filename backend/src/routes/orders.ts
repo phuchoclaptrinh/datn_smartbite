@@ -62,14 +62,15 @@ ordersRouter.post('/', async (req, res) => {
           price: z.object({ amount: z.number().int().nonnegative(), currency: z.literal('VND') }),
         })
       ),
-      deliveryFee: z.object({ amount: z.number().int().nonnegative(), currency: z.literal('VND') }),
+      deliveryFee: z.object({ amount: z.number().int().nonnegative(), currency: z.literal('VND') }).optional(),
       note: z.string().max(200).optional(),
     })
     .merge(paymentInfoSchema)
     .parse(req.body);
 
   const subtotalAmount = body.items.reduce((sum, it) => sum + it.price.amount * it.quantity, 0);
-  const totalAmount = subtotalAmount + body.deliveryFee.amount;
+  const deliveryFeeAmount = body.deliveryFee?.amount ?? 0;
+  const totalAmount = subtotalAmount + deliveryFeeAmount;
   const confirmationMode = await getOrderConfirmationMode();
   const paymentStatus = body.paymentStatus ?? (body.paymentMethod === 'COD' ? 'Unpaid' : 'Pending');
   const initialStatus = paymentStatus === 'Paid' || (body.paymentMethod === 'COD' && confirmationMode === 'auto') ? 'Preparing' : 'Pending';
@@ -89,7 +90,7 @@ ordersRouter.post('/', async (req, res) => {
       userId: body.userId,
       items: body.items,
       subtotalAmount,
-      deliveryFeeAmount: body.deliveryFee.amount,
+      deliveryFeeAmount,
       totalAmount,
       currency: 'VND',
       status: initialStatus,
