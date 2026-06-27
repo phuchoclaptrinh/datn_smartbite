@@ -1,5 +1,6 @@
 ﻿import { Router } from 'express';
 import { z } from 'zod';
+import type { Recipe } from '@prisma/client';
 import { requireAuth, requireRole } from '../auth';
 import { getOrderConfirmationMode, setOrderConfirmationMode } from '../orderSettings';
 import { prisma } from '../prisma';
@@ -81,6 +82,111 @@ managerRouter.patch('/orders/:id/status', async (req, res) => {
   }
 });
 
+
+const menuBodySchema = z.object({
+  name: z.string().min(1),
+  description: z.string().min(1),
+  category: z.string().max(80).optional(),
+  tags: z.array(z.string().min(1)).default([]),
+  timeMin: z.number().int().positive().default(30),
+  servings: z.number().int().positive().default(1),
+  priceAmount: z.number().int().nonnegative(),
+  imageUrl: z.string().url().optional().or(z.literal('')),
+  ingredients: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        quantity: z.number().finite().positive().optional(),
+        unit: z.enum(['g', 'ml', 'pcs']).optional(),
+        optional: z.boolean().optional(),
+      })
+    )
+    .default([]),
+  steps: z.array(z.string().min(1)).default([]),
+});
+
+const toMenuItem = (recipe: Recipe) => ({
+  id: recipe.id,
+  sourceId: recipe.sourceId,
+  name: recipe.name,
+  category: recipe.category,
+  description: recipe.description,
+  tags: recipe.tags,
+  timeMin: recipe.timeMin,
+  servings: recipe.servings,
+  price: { amount: recipe.priceAmount, currency: recipe.currency },
+  imageUrl: recipe.imageUrl,
+  ingredients: recipe.ingredients,
+  steps: recipe.steps,
+  createdAt: recipe.createdAt,
+  updatedAt: recipe.updatedAt,
+});
+
+managerRouter.get('/menu', async (_req, res) => {
+  const recipes = await prisma.recipe.findMany({
+    where: { priceAmount: { gt: 0 } },
+    orderBy: { updatedAt: 'desc' },
+    take: 300,
+  });
+  res.json(recipes.map(toMenuItem));
+});
+
+managerRouter.post('/menu', async (req, res) => {
+  const body = menuBodySchema.parse(req.body);
+  const recipe = await prisma.recipe.create({
+    data: {
+      name: body.name.trim(),
+      normalizedName: body.name.trim().toLowerCase(),
+      category: body.category?.trim() || null,
+      description: body.description.trim(),
+      tags: body.tags.map((item) => item.trim()).filter(Boolean),
+      timeMin: body.timeMin,
+      servings: body.servings,
+      priceAmount: body.priceAmount,
+      currency: 'VND',
+      imageUrl: body.imageUrl?.trim() || null,
+      ingredients: body.ingredients,
+      steps: body.steps,
+    },
+  });
+  res.status(201).json(toMenuItem(recipe));
+});
+
+managerRouter.patch('/menu/:id', async (req, res) => {
+  const id = z.string().min(1).parse(req.params.id);
+  const body = menuBodySchema.partial().parse(req.body);
+  try {
+    const recipe = await prisma.recipe.update({
+      where: { id },
+      data: {
+        name: body.name?.trim(),
+        normalizedName: body.name?.trim().toLowerCase(),
+        category: body.category?.trim() || undefined,
+        description: body.description?.trim(),
+        tags: body.tags?.map((item) => item.trim()).filter(Boolean),
+        timeMin: body.timeMin,
+        servings: body.servings,
+        priceAmount: body.priceAmount,
+        imageUrl: body.imageUrl === undefined ? undefined : body.imageUrl.trim() || null,
+        ingredients: body.ingredients,
+        steps: body.steps,
+      },
+    });
+    res.json(toMenuItem(recipe));
+  } catch {
+    res.status(404).json({ message: 'Không tìm thấy món' });
+  }
+});
+
+managerRouter.delete('/menu/:id', async (req, res) => {
+  const id = z.string().min(1).parse(req.params.id);
+  try {
+    await prisma.recipe.delete({ where: { id } });
+    res.json({ ok: true });
+  } catch {
+    res.status(404).json({ message: 'Không tìm thấy món' });
+  }
+});
 managerRouter.get('/inventory', async (_req, res) => {
   const ingredients = await prisma.ingredient.findMany({ where: { isStockManaged: true }, orderBy: { name: 'asc' }, take: 500 });
   res.json(ingredients);
@@ -373,4 +479,6 @@ managerRouter.get('/customers', async (_req, res) => {
     }))
   );
 });
+
+
 
