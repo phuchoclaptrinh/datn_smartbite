@@ -23,6 +23,8 @@ type SourceDish = {
   type?: string;
 };
 
+type DishImageMap = Record<string, string>;
+
 const categoryLabel: Record<string, string> = {
   'mon banh': 'Món bánh',
   'mon chien': 'Món chiên',
@@ -235,7 +237,9 @@ const normalizeQuantity = (quantity?: number, rawUnit?: string): { quantity?: nu
 
 const main = async () => {
   const dataPath = path.resolve(process.cwd(), 'prisma', 'data', 'dish_knowledge_sample.json');
+  const imageMapPath = path.resolve(process.cwd(), 'prisma', 'data', 'dish_images.json');
   const dishes = JSON.parse(fs.readFileSync(dataPath, 'utf8')) as SourceDish[];
+  const imageMap = fs.existsSync(imageMapPath) ? (JSON.parse(fs.readFileSync(imageMapPath, 'utf8')) as DishImageMap) : {};
   if (dishes.length !== 100) throw new Error(`Expected 100 dishes, found ${dishes.length}`);
 
   await prisma.recipe.deleteMany({
@@ -305,6 +309,7 @@ const main = async () => {
     const label = categoryLabel[category] ?? category;
     const priceAmount = estimatePrice(dish);
     const steps = buildCookingSteps(dish);
+    const imageUrl = imageMap[dish.id] ?? null;
     const description = `${dish.name_vi} thuộc nhóm ${label.toLowerCase()}${importantNames.length ? `, sử dụng ${importantNames.join(', ')}` : ''}.`;
 
     await prisma.recipe.upsert({
@@ -319,6 +324,7 @@ const main = async () => {
         servings: 4,
         priceAmount,
         currency: 'VND',
+        imageUrl,
         ingredients,
         steps,
       },
@@ -333,6 +339,7 @@ const main = async () => {
         servings: 4,
         priceAmount,
         currency: 'VND',
+        imageUrl,
         ingredients,
         steps,
       },
