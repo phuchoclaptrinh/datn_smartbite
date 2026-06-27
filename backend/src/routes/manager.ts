@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireRole } from '../auth';
+import { getOrderConfirmationMode, setOrderConfirmationMode } from '../orderSettings';
 import { prisma } from '../prisma';
 
 export const managerRouter = Router();
@@ -10,6 +11,16 @@ managerRouter.use(requireAuth, requireRole('Manager'));
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const toClosingDate = (value: string) => new Date(`${value}T00:00:00.000Z`);
 const todayString = () => new Date().toISOString().slice(0, 10);
+
+managerRouter.get('/settings', async (_req, res) => {
+  res.json({ orderConfirmationMode: await getOrderConfirmationMode() });
+});
+
+managerRouter.patch('/settings', async (req, res) => {
+  const body = z.object({ orderConfirmationMode: z.enum(['manual', 'auto']) }).parse(req.body);
+  await setOrderConfirmationMode(body.orderConfirmationMode);
+  res.json({ orderConfirmationMode: body.orderConfirmationMode });
+});
 
 managerRouter.get('/dashboard', async (_req, res) => {
   const [customerCount, ingredients, orderCount, pendingOrderCount, completedRevenue] = await Promise.all([

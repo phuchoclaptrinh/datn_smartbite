@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireRole } from '../auth';
+import { getOrderConfirmationMode } from '../orderSettings';
 import { prisma } from '../prisma';
 
 export const ordersRouter = Router();
@@ -69,6 +70,8 @@ ordersRouter.post('/', async (req, res) => {
 
   const subtotalAmount = body.items.reduce((sum, it) => sum + it.price.amount * it.quantity, 0);
   const totalAmount = subtotalAmount + body.deliveryFee.amount;
+  const confirmationMode = await getOrderConfirmationMode();
+  const initialStatus = confirmationMode === 'auto' ? 'Preparing' : 'Pending';
   const paymentStatus = body.paymentStatus ?? (body.paymentMethod === 'QR' ? 'Pending' : 'Unpaid');
   const paymentNote = [
     body.note?.trim(),
@@ -89,7 +92,7 @@ ordersRouter.post('/', async (req, res) => {
       deliveryFeeAmount: body.deliveryFee.amount,
       totalAmount,
       currency: 'VND',
-      status: 'Pending',
+      status: initialStatus,
       note: paymentNote,
     },
     select: { id: true },

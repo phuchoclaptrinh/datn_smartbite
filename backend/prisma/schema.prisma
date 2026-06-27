@@ -165,3 +165,9 @@ model Order {
 
   @@index([userId, createdAt])
 }
+
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
