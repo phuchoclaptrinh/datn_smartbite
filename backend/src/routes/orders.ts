@@ -71,8 +71,8 @@ ordersRouter.post('/', async (req, res) => {
   const subtotalAmount = body.items.reduce((sum, it) => sum + it.price.amount * it.quantity, 0);
   const totalAmount = subtotalAmount + body.deliveryFee.amount;
   const confirmationMode = await getOrderConfirmationMode();
-  const initialStatus = confirmationMode === 'auto' ? 'Preparing' : 'Pending';
-  const paymentStatus = body.paymentStatus ?? (body.paymentMethod === 'QR' ? 'Pending' : 'Unpaid');
+  const paymentStatus = body.paymentStatus ?? (body.paymentMethod === 'COD' ? 'Unpaid' : 'Pending');
+  const initialStatus = paymentStatus === 'Paid' || (body.paymentMethod === 'COD' && confirmationMode === 'auto') ? 'Preparing' : 'Pending';
   const paymentNote = [
     body.note?.trim(),
     `Thanh toan: ${body.paymentMethod === 'QR' ? 'QR code' : 'Tien mat khi nhan hang'}`,

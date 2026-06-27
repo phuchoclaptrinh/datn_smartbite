@@ -26,6 +26,8 @@ const EnvSchema = z
     GEMINI_API_KEY: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
     GEMINI_ENABLED: z.enum(['true', 'false']).default('true').transform((value) => value === 'true'),
     GEMINI_MODEL: z.string().min(1).default('gemini-2.5-flash'),
+
+    BANK_WEBHOOK_SECRET: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
   })
   .superRefine((val, ctx) => {
     const missing: string[] = [];
@@ -82,6 +84,8 @@ export const env = EnvSchema.parse({
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GEMINI_ENABLED: process.env.GEMINI_ENABLED,
   GEMINI_MODEL: process.env.GEMINI_MODEL,
+
+  BANK_WEBHOOK_SECRET: process.env.BANK_WEBHOOK_SECRET,
 });
 
 if (!process.env.DATABASE_URL && env.DB_HOST && env.DB_PORT && env.DB_USER && env.DB_PASS && env.DB_NAME) {

@@ -1,0 +1,124 @@
+import { Request, Router } from 'express';
+import { z } from 'zod';
+import { env } from '../env';
+import { prisma } from '../prisma';
+
+export const paymentWebhooksRouter = Router();
+
+const webhookSchema = z
+  .object({
+    amount: z.coerce.number().int().positive().optional(),
+    transferAmount: z.coerce.number().int().positive().optional(),
+    money: z.coerce.number().int().positive().optional(),
+    description: z.string().optional(),
+    content: z.string().optional(),
+    transactionId: z.string().optional(),
+    reference: z.string().optional(),
+    bankCode: z.string().optional(),
+    accountNumber: z.string().optional(),
+    type: z.string().optional(),
+  })
+  .passthrough();
+
+const getWebhookSecret = (req: Request) => req.header('x-webhook-secret') ?? req.header('x-api-key') ?? req.query.secret;
+
+const normalizeText = (value: string) => value.replace(/\s+/g, ' ').trim().toUpperCase();
+
+const extractPaymentContent = (note?: string | null) => note?.match(/Noi dung CK: ([^\n]+)/)?.[1]?.trim();
+
+const asRecord = (value: unknown): Record<string, unknown> => (value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {});
+
+const getPayloadCandidates = (raw: unknown) => {
+  const root = asRecord(raw);
+  const data = root.data;
+  const candidates: unknown[] = [root];
+  if (Array.isArray(data)) candidates.push(...data);
+  else if (data) candidates.push(data);
+  return candidates;
+};
+
+const parseTransaction = (raw: unknown) => {
+  for (const candidate of getPayloadCandidates(raw)) {
+    const parsed = webhookSchema.safeParse(candidate);
+    if (!parsed.success) continue;
+    const amount = parsed.data.amount ?? parsed.data.transferAmount ?? parsed.data.money;
+    const description = parsed.data.description ?? parsed.data.content ?? '';
+    if (amount && description.trim()) return { ...parsed.data, amount, description };
+  }
+  return null;
+};
+
+const markQrPaymentPaid = (note: string, input: { transactionId?: string; bankCode?: string; amount: number }) => {
+  const lines = note
+    .split('\n')
+    .filter(
+      (line) =>
+        !line.startsWith('Trang thai thanh toan:') &&
+        !line.startsWith('Ma giao dich NH:') &&
+        !line.startsWith('Ngan hang webhook:') &&
+        !line.startsWith('So tien da nhan:') &&
+        !line.startsWith('Thoi gian xac nhan:')
+    );
+
+  lines.push('Trang thai thanh toan: Paid');
+  if (input.transactionId) lines.push(`Ma giao dich NH: ${input.transactionId}`);
+  if (input.bankCode) lines.push(`Ngan hang webhook: ${input.bankCode}`);
+  lines.push(`So tien da nhan: ${input.amount}`);
+  lines.push(`Thoi gian xac nhan: ${new Date().toISOString()}`);
+
+  return lines.join('\n');
+};
+
+paymentWebhooksRouter.post('/bank-webhook', async (req, res) => {
+  if (env.BANK_WEBHOOK_SECRET && getWebhookSecret(req) !== env.BANK_WEBHOOK_SECRET) {
+    res.status(401).json({ message: 'Invalid webhook secret' });
+    return;
+  }
+
+  const body = parseTransaction(req.body);
+  if (!body) {
+    res.status(400).json({ message: 'Missing amount or description' });
+    return;
+  }
+
+  const normalizedDescription = normalizeText(body.description);
+  const transactionId = body.transactionId ?? body.reference;
+  const candidates = await prisma.order.findMany({
+    where: {
+      totalAmount: body.amount,
+      status: 'Pending',
+      note: {
+        contains: 'Thanh toan: QR code',
+      },
+    },
+    orderBy: { createdAt: 'asc' },
+    take: 50,
+  });
+
+  const matchedOrder = candidates.find((order) => {
+    const note = order.note ?? '';
+    if (!note.includes('Trang thai thanh toan: Pending')) return false;
+    const paymentContent = extractPaymentContent(note);
+    return paymentContent ? normalizedDescription.includes(normalizeText(paymentContent)) : false;
+  });
+
+  if (!matchedOrder) {
+    res.status(404).json({ message: 'No pending QR order matched this transaction' });
+    return;
+  }
+
+  const updated = await prisma.order.update({
+    where: { id: matchedOrder.id },
+    data: {
+      status: 'Preparing',
+      note: markQrPaymentPaid(matchedOrder.note ?? '', {
+        amount: body.amount,
+        transactionId,
+        bankCode: body.bankCode,
+      }),
+    },
+    select: { id: true, status: true, totalAmount: true },
+  });
+
+  res.json({ ok: true, orderId: updated.id, status: updated.status, amount: updated.totalAmount });
+});
