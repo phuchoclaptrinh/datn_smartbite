@@ -14,15 +14,22 @@ const webhookSchema = z
     content: z.string().optional(),
     transactionId: z.string().optional(),
     reference: z.string().optional(),
+    referenceCode: z.string().optional(),
     bankCode: z.string().optional(),
+    gateway: z.string().optional(),
     accountNumber: z.string().optional(),
     type: z.string().optional(),
   })
   .passthrough();
 
-const getWebhookSecret = (req: Request) => req.header('x-webhook-secret') ?? req.header('x-api-key') ?? req.query.secret;
+const getWebhookSecret = (req: Request) => {
+  const authorization = req.header('authorization') ?? '';
+  const apiKey = authorization.match(/^Apikey\s+(.+)$/i)?.[1]?.trim();
+  return req.header('x-webhook-secret') ?? req.header('x-api-key') ?? apiKey ?? req.query.secret;
+};
 
 const normalizeText = (value: string) => value.replace(/\s+/g, ' ').trim().toUpperCase();
+const normalizePaymentCode = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 const extractPaymentContent = (note?: string | null) => note?.match(/Noi dung CK: ([^\n]+)/)?.[1]?.trim();
 
@@ -82,7 +89,8 @@ paymentWebhooksRouter.post('/bank-webhook', async (req, res) => {
   }
 
   const normalizedDescription = normalizeText(body.description);
-  const transactionId = body.transactionId ?? body.reference;
+  const normalizedDescriptionCode = normalizePaymentCode(body.description);
+  const transactionId = body.transactionId ?? body.reference ?? body.referenceCode;
   const candidates = await prisma.order.findMany({
     where: {
       totalAmount: body.amount,
@@ -99,7 +107,8 @@ paymentWebhooksRouter.post('/bank-webhook', async (req, res) => {
     const note = order.note ?? '';
     if (!note.includes('Trang thai thanh toan: Pending')) return false;
     const paymentContent = extractPaymentContent(note);
-    return paymentContent ? normalizedDescription.includes(normalizeText(paymentContent)) : false;
+    if (!paymentContent) return false;
+    return normalizedDescription.includes(normalizeText(paymentContent)) || normalizedDescriptionCode.includes(normalizePaymentCode(paymentContent));
   });
 
   if (!matchedOrder) {
@@ -114,7 +123,7 @@ paymentWebhooksRouter.post('/bank-webhook', async (req, res) => {
       note: markQrPaymentPaid(matchedOrder.note ?? '', {
         amount: body.amount,
         transactionId,
-        bankCode: body.bankCode,
+        bankCode: body.bankCode ?? body.gateway,
       }),
     },
     select: { id: true, status: true, totalAmount: true },
