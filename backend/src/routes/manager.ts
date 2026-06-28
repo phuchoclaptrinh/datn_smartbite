@@ -1,7 +1,8 @@
 ﻿import { Router } from 'express';
 import { z } from 'zod';
-import type { Recipe } from '@prisma/client';
+import type { DiscountCampaign, Recipe } from '@prisma/client';
 import { requireAuth, requireRole } from '../auth';
+import { normalizeDiscountCode } from '../discounts';
 import { getOrderConfirmationMode, setOrderConfirmationMode } from '../orderSettings';
 import { prisma } from '../prisma';
 
@@ -21,6 +22,103 @@ managerRouter.patch('/settings', async (req, res) => {
   const body = z.object({ orderConfirmationMode: z.enum(['manual', 'auto']) }).parse(req.body);
   await setOrderConfirmationMode(body.orderConfirmationMode);
   res.json({ orderConfirmationMode: body.orderConfirmationMode });
+});
+
+const discountBodySchema = z.object({
+  name: z.string().min(1),
+  code: z.string().min(1),
+  description: z.string().max(300).optional().or(z.literal('')),
+  discountType: z.enum(['Percent', 'Fixed']),
+  discountValue: z.number().int().positive(),
+  minOrderAmount: z.number().int().nonnegative().default(0),
+  maxDiscount: z.number().int().positive().optional().nullable(),
+  usageLimit: z.number().int().positive().optional().nullable(),
+  isActive: z.boolean().default(true),
+  startsAt: z.string().datetime().optional().nullable(),
+  endsAt: z.string().datetime().optional().nullable(),
+});
+
+const toDiscountDto = (campaign: DiscountCampaign) => ({
+  id: campaign.id,
+  name: campaign.name,
+  code: campaign.code,
+  description: campaign.description,
+  discountType: campaign.discountType,
+  discountValue: campaign.discountValue,
+  minOrderAmount: campaign.minOrderAmount,
+  maxDiscount: campaign.maxDiscount,
+  usageLimit: campaign.usageLimit,
+  usedCount: campaign.usedCount,
+  isActive: campaign.isActive,
+  startsAt: campaign.startsAt,
+  endsAt: campaign.endsAt,
+  createdAt: campaign.createdAt,
+  updatedAt: campaign.updatedAt,
+});
+
+managerRouter.get('/discounts', async (_req, res) => {
+  const campaigns = await prisma.discountCampaign.findMany({ orderBy: { updatedAt: 'desc' }, take: 200 });
+  res.json(campaigns.map(toDiscountDto));
+});
+
+managerRouter.post('/discounts', async (req, res) => {
+  const body = discountBodySchema.parse(req.body);
+  try {
+    const campaign = await prisma.discountCampaign.create({
+      data: {
+        name: body.name.trim(),
+        code: normalizeDiscountCode(body.code),
+        description: body.description?.trim() || null,
+        discountType: body.discountType,
+        discountValue: body.discountValue,
+        minOrderAmount: body.minOrderAmount,
+        maxDiscount: body.maxDiscount ?? null,
+        usageLimit: body.usageLimit ?? null,
+        isActive: body.isActive,
+        startsAt: body.startsAt ? new Date(body.startsAt) : null,
+        endsAt: body.endsAt ? new Date(body.endsAt) : null,
+      },
+    });
+    res.status(201).json(toDiscountDto(campaign));
+  } catch {
+    res.status(409).json({ message: 'Mã giảm giá đã tồn tại.' });
+  }
+});
+
+managerRouter.patch('/discounts/:id', async (req, res) => {
+  const id = z.string().min(1).parse(req.params.id);
+  const body = discountBodySchema.partial().parse(req.body);
+  try {
+    const campaign = await prisma.discountCampaign.update({
+      where: { id },
+      data: {
+        name: body.name?.trim(),
+        code: body.code === undefined ? undefined : normalizeDiscountCode(body.code),
+        description: body.description === undefined ? undefined : body.description.trim() || null,
+        discountType: body.discountType,
+        discountValue: body.discountValue,
+        minOrderAmount: body.minOrderAmount,
+        maxDiscount: body.maxDiscount === undefined ? undefined : body.maxDiscount ?? null,
+        usageLimit: body.usageLimit === undefined ? undefined : body.usageLimit ?? null,
+        isActive: body.isActive,
+        startsAt: body.startsAt === undefined ? undefined : body.startsAt ? new Date(body.startsAt) : null,
+        endsAt: body.endsAt === undefined ? undefined : body.endsAt ? new Date(body.endsAt) : null,
+      },
+    });
+    res.json(toDiscountDto(campaign));
+  } catch {
+    res.status(404).json({ message: 'Không tìm thấy mã giảm giá.' });
+  }
+});
+
+managerRouter.delete('/discounts/:id', async (req, res) => {
+  const id = z.string().min(1).parse(req.params.id);
+  try {
+    await prisma.discountCampaign.delete({ where: { id } });
+    res.json({ ok: true });
+  } catch {
+    res.status(404).json({ message: 'Không tìm thấy mã giảm giá.' });
+  }
 });
 
 managerRouter.get('/dashboard', async (_req, res) => {

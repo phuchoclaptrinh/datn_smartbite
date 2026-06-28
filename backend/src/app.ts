@@ -12,6 +12,7 @@ import { ordersRouter } from './routes/orders';
 import { chatRouter } from './routes/chat';
 import { managerRouter } from './routes/manager';
 import { paymentWebhooksRouter } from './routes/paymentWebhooks';
+import { discountsRouter } from './routes/discounts';
 import { rateLimit, securityHeaders } from './middleware/security';
 
 const corsOrigin = env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean);
@@ -37,6 +38,7 @@ export const buildApp = () => {
   app.use('/api/recipes', recipesRouter);
   app.use('/api/orders', ordersRouter);
   app.use('/api/chat', chatRouter);
+  app.use('/api/discounts', discountsRouter);
   app.use('/api/manager', managerRouter);
   app.use('/api/payments', paymentWebhooksRouter);
 

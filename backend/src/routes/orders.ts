@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireRole } from '../auth';
+import { calculateDiscountAmount, getDiscountUnavailableReason, normalizeDiscountCode } from '../discounts';
 import { getOrderConfirmationMode } from '../orderSettings';
 import { prisma } from '../prisma';
 
@@ -63,6 +64,7 @@ ordersRouter.post('/', async (req, res) => {
         })
       ),
       deliveryFee: z.object({ amount: z.number().int().nonnegative(), currency: z.literal('VND') }).optional(),
+      discountCode: z.string().min(1).optional(),
       note: z.string().max(200).optional(),
     })
     .merge(paymentInfoSchema)
@@ -70,12 +72,32 @@ ordersRouter.post('/', async (req, res) => {
 
   const subtotalAmount = body.items.reduce((sum, it) => sum + it.price.amount * it.quantity, 0);
   const deliveryFeeAmount = body.deliveryFee?.amount ?? 0;
-  const totalAmount = subtotalAmount + deliveryFeeAmount;
+  let discountAmount = 0;
+  let discountNote: string | undefined;
+  let discountCampaignId: string | undefined;
+  if (body.discountCode) {
+    const code = normalizeDiscountCode(body.discountCode);
+    const campaign = await prisma.discountCampaign.findUnique({ where: { code } });
+    if (!campaign) {
+      res.status(400).json({ message: 'Mã giảm giá không tồn tại.' });
+      return;
+    }
+    const reason = getDiscountUnavailableReason(campaign, subtotalAmount);
+    if (reason) {
+      res.status(400).json({ message: reason });
+      return;
+    }
+    discountAmount = calculateDiscountAmount(campaign, subtotalAmount);
+    discountCampaignId = campaign.id;
+    discountNote = `Ma giam gia: ${campaign.code}\nSo tien giam: ${discountAmount}`;
+  }
+  const totalAmount = Math.max(0, subtotalAmount - discountAmount + deliveryFeeAmount);
   const confirmationMode = await getOrderConfirmationMode();
   const paymentStatus = body.paymentStatus ?? (body.paymentMethod === 'COD' ? 'Unpaid' : 'Pending');
   const initialStatus = paymentStatus === 'Paid' || (body.paymentMethod === 'COD' && confirmationMode === 'auto') ? 'Preparing' : 'Pending';
   const paymentNote = [
     body.note?.trim(),
+    discountNote,
     `Thanh toan: ${body.paymentMethod === 'QR' ? 'QR code' : 'Tien mat khi nhan hang'}`,
     `Trang thai thanh toan: ${paymentStatus}`,
     body.paymentProvider ? `Ngan hang/vi: ${body.paymentProvider}` : undefined,
@@ -85,18 +107,24 @@ ordersRouter.post('/', async (req, res) => {
     .filter(Boolean)
     .join('\n');
 
-  const doc = await prisma.order.create({
-    data: {
-      userId: body.userId,
-      items: body.items,
-      subtotalAmount,
-      deliveryFeeAmount,
-      totalAmount,
-      currency: 'VND',
-      status: initialStatus,
-      note: paymentNote,
-    },
-    select: { id: true },
+  const doc = await prisma.$transaction(async (tx) => {
+    const created = await tx.order.create({
+      data: {
+        userId: body.userId,
+        items: body.items,
+        subtotalAmount,
+        deliveryFeeAmount,
+        totalAmount,
+        currency: 'VND',
+        status: initialStatus,
+        note: paymentNote,
+      },
+      select: { id: true },
+    });
+    if (discountCampaignId) {
+      await tx.discountCampaign.update({ where: { id: discountCampaignId }, data: { usedCount: { increment: 1 } } });
+    }
+    return created;
   });
 
   res.status(201).json({ id: doc.id });

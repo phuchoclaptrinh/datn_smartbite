@@ -42,6 +42,11 @@ enum InventoryGroup {
   Other
 }
 
+enum DiscountType {
+  Percent
+  Fixed
+}
+
 model User {
   id                String             @id @default(cuid())
   fullName          String
@@ -170,4 +175,24 @@ model AppSetting {
   key       String   @id
   value     String
   updatedAt DateTime @updatedAt
+}
+
+model DiscountCampaign {
+  id             String       @id @default(cuid())
+  name           String
+  code           String       @unique
+  description    String?
+  discountType   DiscountType
+  discountValue  Int
+  minOrderAmount Int          @default(0)
+  maxDiscount    Int?
+  usageLimit     Int?
+  usedCount      Int          @default(0)
+  isActive       Boolean      @default(true)
+  startsAt       DateTime?
+  endsAt         DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([isActive, startsAt, endsAt])
 }
