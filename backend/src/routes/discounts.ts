@@ -5,6 +5,35 @@ import { prisma } from '../prisma';
 
 export const discountsRouter = Router();
 
+discountsRouter.get('/', async (req, res) => {
+  const subtotalAmount = z.coerce.number().int().nonnegative().default(0).parse(req.query.subtotalAmount);
+  const campaigns = await prisma.discountCampaign.findMany({
+    where: { isActive: true },
+    orderBy: [{ updatedAt: 'desc' }],
+    take: 50,
+  });
+
+  res.json(
+    campaigns.map((campaign) => {
+      const unavailableReason = getDiscountUnavailableReason(campaign, subtotalAmount);
+      const discountAmount = unavailableReason ? 0 : calculateDiscountAmount(campaign, subtotalAmount);
+      return {
+        id: campaign.id,
+        name: campaign.name,
+        code: campaign.code,
+        description: campaign.description,
+        discountAmount,
+        finalAmount: Math.max(0, subtotalAmount - discountAmount),
+        discountType: campaign.discountType,
+        discountValue: campaign.discountValue,
+        minOrderAmount: campaign.minOrderAmount,
+        maxDiscount: campaign.maxDiscount,
+        unavailableReason,
+      };
+    })
+  );
+});
+
 discountsRouter.post('/validate', async (req, res) => {
   const body = z
     .object({
