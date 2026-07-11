@@ -432,20 +432,73 @@ managerRouter.post('/inventory/closing', async (req, res) => {
     return;
   }
 
-  const ingredients = await prisma.ingredient.findMany({ where: { isStockManaged: true }, orderBy: { name: 'asc' } });
-  if (ingredients.length !== body.items.length || ingredients.some((ingredient) => !uniqueIds.has(ingredient.id))) {
-    res.status(400).json({ message: 'Cáº§n kiá»ƒm Ä‘áº¿m Ä‘áº§y Ä‘á»§ táº¥t cáº£ nguyÃªn liá»‡u trong kho' });
-    return;
-  }
-
   const actualById = new Map(body.items.map((item) => [item.ingredientId, item.actualQuantity]));
   const closingDate = toClosingDate(body.date);
 
-  try {
-    const closing = await prisma.$transaction(
-      async (tx) => {
-        const existing = await tx.inventoryClosing.findUnique({ where: { closingDate }, select: { id: true } });
-        if (existing) throw new Error('CLOSING_EXISTS');
+  const existingClosing = await prisma.inventoryClosing.findUnique({
+    where: { closingDate },
+    include: { items: true },
+  });
+
+  const ingredients = existingClosing
+    ? await prisma.ingredient.findMany({ where: { id: { in: body.items.map((item) => item.ingredientId) } }, orderBy: { name: 'asc' } })
+    : await prisma.ingredient.findMany({ where: { isStockManaged: true }, orderBy: { name: 'asc' } });
+
+  if (existingClosing) {
+    const closingItemIds = new Set(existingClosing.items.map((item) => item.ingredientId));
+    if (closingItemIds.size !== body.items.length || body.items.some((item) => !closingItemIds.has(item.ingredientId))) {
+      res.status(400).json({ message: 'Cần kiểm đếm đầy đủ các nguyên liệu đã có trong phiếu chốt kho' });
+      return;
+    }
+    if (ingredients.length !== body.items.length) {
+      res.status(400).json({ message: 'Một số nguyên liệu trong phiếu chốt kho không còn tồn tại' });
+      return;
+    }
+  } else if (ingredients.length !== body.items.length || ingredients.some((ingredient) => !uniqueIds.has(ingredient.id))) {
+    res.status(400).json({ message: 'Cần kiểm đếm đầy đủ tất cả nguyên liệu trong kho' });
+    return;
+  }
+
+  const closing = await prisma.$transaction(
+    async (tx) => {
+      if (existingClosing) {
+        await tx.inventoryClosing.update({
+          where: { id: existingClosing.id },
+          data: { note: body.note?.trim() || null },
+        });
+
+        const oldItems = new Map(existingClosing.items.map((item) => [item.ingredientId, item]));
+
+        for (const ingredient of ingredients) {
+          const oldItem = oldItems.get(ingredient.id)!;
+          const actualQuantity = actualById.get(ingredient.id)!;
+          const variance = actualQuantity - oldItem.expectedQuantity;
+          const stockDelta = actualQuantity - ingredient.stockQuantity;
+
+          await tx.inventoryClosingItem.update({
+            where: { closingId_ingredientId: { closingId: existingClosing.id, ingredientId: ingredient.id } },
+            data: { actualQuantity, variance, unit: ingredient.unit },
+          });
+
+          await tx.ingredient.update({ where: { id: ingredient.id }, data: { stockQuantity: actualQuantity } });
+
+          if (stockDelta !== 0) {
+            await tx.inventoryMovement.create({
+              data: {
+                ingredientId: ingredient.id,
+                type: 'Adjustment',
+                quantityDelta: stockDelta,
+                note: `Chốt lại cuối ngày ${body.date}`,
+              },
+            });
+          }
+        }
+
+        return tx.inventoryClosing.findUniqueOrThrow({
+          where: { id: existingClosing.id },
+          include: { items: true },
+        });
+      }
 
         const created = await tx.inventoryClosing.create({
           data: {
@@ -487,18 +540,11 @@ managerRouter.post('/inventory/closing', async (req, res) => {
         return created;
       },
       { isolationLevel: 'Serializable' }
-    );
+  );
 
     const totalVariance = closing.items.reduce((sum, item) => sum + Math.abs(item.variance), 0);
     const mismatchCount = closing.items.filter((item) => item.variance !== 0).length;
-    res.status(201).json({ id: closing.id, date: body.date, itemCount: closing.items.length, mismatchCount, totalVariance });
-  } catch (error) {
-    if (error instanceof Error && error.message === 'CLOSING_EXISTS') {
-      res.status(409).json({ message: 'NgÃ y nÃ y Ä‘Ã£ Ä‘Æ°á»£c chá»‘t kho' });
-      return;
-    }
-    throw error;
-  }
+    res.status(existingClosing ? 200 : 201).json({ id: closing.id, date: body.date, itemCount: closing.items.length, mismatchCount, totalVariance });
 });
 
 managerRouter.get('/inventory/analysis', async (req, res) => {
